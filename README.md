@@ -4,6 +4,11 @@ CMS-aware, portable, privacy-first analytics for [EmDash](https://github.com/emd
 
 Track pageviews, UTM campaigns, custom events, and more — segmented by route, template, and collection. Works on Cloudflare Workers and Node.js self-hosted.
 
+<p align="center">
+  <img src="./docs/screenshots/overview.png" alt="Analytics overview dashboard" width="49%" />
+  <img src="./docs/screenshots/conversion.png" alt="Funnels, goals, and forms analytics" width="49%" />
+</p>
+
 ## Install
 
 ```bash
@@ -54,7 +59,7 @@ import AnalyticsBeacon from "em-analytics-hub/astro";
 - Goals
 - Forms analytics
 - Campaign intelligence
-- Custom event property breakdowns and filters
+- Custom event property breakdowns
 - Period comparison
 - Countries breakdown
 - 365-day retention
@@ -85,7 +90,7 @@ UTM parameters are captured automatically from URLs:
 https://yoursite.com/blog/post?utm_source=twitter&utm_medium=social&utm_campaign=spring2026
 ```
 
-Source, medium, and campaign appear in the Campaigns section of the dashboard.
+Source, medium, and campaign are captured automatically and feed the campaign insights shown in the dashboard.
 
 ## Template and Collection Metadata
 
