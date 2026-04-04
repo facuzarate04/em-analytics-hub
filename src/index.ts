@@ -33,7 +33,7 @@ export function analyticsHub(options?: AnalyticsHubOptions): PluginDescriptor {
 			excludedPaths: options?.excludedPaths ?? DEFAULT_EXCLUDED_PATHS,
 		},
 		capabilities: ["read:content", "network:fetch", "page:inject"],
-		allowedHosts: [],
+		allowedHosts: ["api.lemonsqueezy.com"],
 		storage: {
 			events: {
 				indexes: [
@@ -99,6 +99,13 @@ export function analyticsHub(options?: AnalyticsHubOptions): PluginDescriptor {
 					description:
 						"How long to keep raw event data. Free plan: max 30 days.",
 					default: 30,
+				},
+				licenseKey: {
+					type: "secret",
+					label: "License Key",
+					description:
+						"Enter your Pro license key to unlock advanced features. Leave empty for the free plan.",
+					default: "",
 				},
 			},
 		},

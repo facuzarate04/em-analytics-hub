@@ -2,31 +2,244 @@
 // License & feature gating
 // ---------------------------------------------------------------------------
 
-import type { LicenseCache, PlanId } from "../types.js";
-import { PLANS, DEFAULT_RETENTION_DAYS } from "../constants.js";
+import type { LicenseCache, LicenseProvider, LicenseCheckResult, PlanId } from "../types.js";
+import { PLANS, DEFAULT_RETENTION_DAYS, KV_KEYS } from "../constants.js";
+
+/** Grace period in days after last successful validation. */
+const GRACE_PERIOD_DAYS = 7;
+
+/** Revalidation interval in hours. */
+const REVALIDATION_INTERVAL_HOURS = 24;
+
+// ---------------------------------------------------------------------------
+// KV access type (matches EmDash's KVAccess)
+// ---------------------------------------------------------------------------
+
+export interface KVAccess {
+	get: <T>(key: string) => Promise<T | null | undefined>;
+	set: (key: string, value: unknown) => Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Default license cache
+// ---------------------------------------------------------------------------
 
 /** Default free plan license cache. */
 export const FREE_LICENSE: LicenseCache = {
 	plan: "free",
 	validUntil: "",
 	checkedAt: "",
+	status: "inactive",
+	instanceId: "",
+	siteUrl: "",
+	graceEndsAt: "",
 };
+
+// ---------------------------------------------------------------------------
+// License cache read/write
+// ---------------------------------------------------------------------------
 
 /**
  * Retrieves the current license from KV store, falling back to free plan.
- * Uses `data_get` pattern for safe access.
  */
-export async function getLicense(kv: {
-	get: <T>(key: string) => Promise<T | null | undefined>;
-}): Promise<LicenseCache> {
+export async function getLicense(kv: KVAccess): Promise<LicenseCache> {
 	try {
-		const cached = await kv.get<LicenseCache>("state:license_cache");
-		if (cached) return cached;
+		const cached = await kv.get<LicenseCache>(KV_KEYS.LICENSE_CACHE);
+		if (cached) return { ...FREE_LICENSE, ...cached };
 	} catch {
 		// KV read failed — fall back to free
 	}
 	return FREE_LICENSE;
 }
+
+/**
+ * Persists the license cache to KV store.
+ */
+export async function saveLicense(kv: KVAccess, cache: LicenseCache): Promise<void> {
+	await kv.set(KV_KEYS.LICENSE_CACHE, cache);
+}
+
+// ---------------------------------------------------------------------------
+// License activation and validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Activates a license key for a site using the configured provider.
+ * Stores the result in KV cache on success.
+ */
+export async function activateLicense(
+	kv: KVAccess,
+	provider: LicenseProvider,
+	licenseKey: string,
+	siteUrl: string,
+): Promise<LicenseCheckResult> {
+	const result = await provider.activate(licenseKey, siteUrl);
+
+	if (result.valid) {
+		const cache: LicenseCache = {
+			plan: result.plan,
+			validUntil: result.validUntil,
+			checkedAt: new Date().toISOString(),
+			status: "active",
+			instanceId: result.instanceId,
+			siteUrl,
+			graceEndsAt: "",
+		};
+		await saveLicense(kv, cache);
+	}
+
+	return result;
+}
+
+/**
+ * Validates the current license using the configured provider.
+ * Handles grace period logic:
+ * - On success: updates cache, clears grace
+ * - On failure: starts grace period if not already started
+ * - After grace expires: degrades to free
+ */
+export async function validateLicense(
+	kv: KVAccess,
+	provider: LicenseProvider,
+): Promise<LicenseCache> {
+	const current = await getLicense(kv);
+
+	// No license key or not activated — nothing to validate
+	if (!current.instanceId || current.plan === "free") {
+		return current;
+	}
+
+	// Check if revalidation is needed
+	if (current.checkedAt && !isRevalidationDue(current.checkedAt)) {
+		return current;
+	}
+
+	// Get the license key from settings
+	const licenseKey = await kv.get<string>(KV_KEYS.SETTINGS_LICENSE_KEY);
+	if (!licenseKey) {
+		return current;
+	}
+
+	const result = await provider.validate(licenseKey, current.instanceId);
+
+	if (result.valid) {
+		// Success — update cache, clear grace
+		const updated: LicenseCache = {
+			...current,
+			plan: result.plan,
+			validUntil: result.validUntil,
+			checkedAt: new Date().toISOString(),
+			status: "active",
+			graceEndsAt: "",
+		};
+		await saveLicense(kv, updated);
+		return updated;
+	}
+
+	// Validation failed — apply grace period logic
+	return applyGracePeriod(kv, current, result);
+}
+
+/**
+ * Deactivates the current license and reverts to free plan.
+ */
+export async function deactivateLicense(
+	kv: KVAccess,
+	provider: LicenseProvider,
+): Promise<void> {
+	const current = await getLicense(kv);
+
+	if (current.instanceId) {
+		const licenseKey = await kv.get<string>(KV_KEYS.SETTINGS_LICENSE_KEY);
+		if (licenseKey) {
+			try {
+				await provider.deactivate(licenseKey, current.instanceId);
+			} catch (error) {
+				report(error);
+			}
+		}
+	}
+
+	await saveLicense(kv, FREE_LICENSE);
+}
+
+// ---------------------------------------------------------------------------
+// Grace period
+// ---------------------------------------------------------------------------
+
+/**
+ * Applies grace period logic when validation fails.
+ * - If no grace period active: starts one (7 days from now)
+ * - If grace period active and not expired: keep Pro, return current cache
+ * - If grace period expired: degrade to free
+ */
+async function applyGracePeriod(
+	kv: KVAccess,
+	current: LicenseCache,
+	failedResult: LicenseCheckResult,
+): Promise<LicenseCache> {
+	const now = new Date();
+
+	// If status is explicitly expired (not a network error), shorter tolerance
+	if (failedResult.status === "expired") {
+		const updated: LicenseCache = {
+			...current,
+			plan: "free",
+			status: "expired",
+			checkedAt: now.toISOString(),
+			graceEndsAt: "",
+		};
+		await saveLicense(kv, updated);
+		return updated;
+	}
+
+	// Network error or unknown — apply grace period
+	if (!current.graceEndsAt) {
+		// Start grace period
+		const graceEnd = new Date(now);
+		graceEnd.setDate(graceEnd.getDate() + GRACE_PERIOD_DAYS);
+
+		const updated: LicenseCache = {
+			...current,
+			status: "active", // Keep active during grace
+			graceEndsAt: graceEnd.toISOString(),
+		};
+		await saveLicense(kv, updated);
+		return updated;
+	}
+
+	// Grace period already active — check if expired
+	if (new Date(current.graceEndsAt) < now) {
+		// Grace period expired — degrade to free
+		const updated: LicenseCache = {
+			...current,
+			plan: "free",
+			status: "inactive",
+			checkedAt: now.toISOString(),
+			graceEndsAt: "",
+		};
+		await saveLicense(kv, updated);
+		return updated;
+	}
+
+	// Still within grace period — keep current state
+	return current;
+}
+
+/**
+ * Checks if enough time has passed since last validation to revalidate.
+ */
+function isRevalidationDue(checkedAt: string): boolean {
+	if (!checkedAt) return true;
+	const lastCheck = new Date(checkedAt).getTime();
+	const now = Date.now();
+	const intervalMs = REVALIDATION_INTERVAL_HOURS * 60 * 60 * 1000;
+	return (now - lastCheck) >= intervalMs;
+}
+
+// ---------------------------------------------------------------------------
+// Feature gating
+// ---------------------------------------------------------------------------
 
 /** Checks if a specific feature is available on the current plan. */
 export function hasFeature(license: LicenseCache, feature: string): boolean {
@@ -53,55 +266,62 @@ export function getMaxRetentionDays(license: LicenseCache): number {
 }
 
 // ---------------------------------------------------------------------------
-// Convenience feature checks for common gating points
+// Convenience feature checks
 // ---------------------------------------------------------------------------
 
-/** Whether custom event property breakdowns are available. */
 export function canViewEventProperties(license: LicenseCache): boolean {
 	return hasFeature(license, "custom_events_property_breakdowns");
 }
 
-/** Whether custom event trend charts are available (Free+). */
 export function canViewEventTrends(license: LicenseCache): boolean {
 	return hasFeature(license, "custom_events_trends");
 }
 
-/** Whether custom event funnels are available. */
 export function canViewFunnels(license: LicenseCache): boolean {
 	return hasFeature(license, "custom_events_funnels");
 }
 
-/** Whether UTM term/content fields are available. */
 export function canViewUtmTermContent(license: LicenseCache): boolean {
 	return hasFeature(license, "utm_term_content");
 }
 
-/** Whether campaign comparison / intelligence is available. */
 export function canViewCampaignIntelligence(license: LicenseCache): boolean {
 	return hasFeature(license, "utm_campaign_comparison");
 }
 
-/** Whether data export is available. */
 export function canExport(license: LicenseCache): boolean {
 	return hasFeature(license, "export");
 }
 
-/** Whether country breakdown is available. */
 export function canViewCountries(license: LicenseCache): boolean {
 	return hasFeature(license, "countries");
 }
 
-/** Whether period comparison is available. */
 export function canComparePeriods(license: LicenseCache): boolean {
 	return hasFeature(license, "period_comparison");
 }
 
-/** Whether advanced segments are available. */
 export function canUseAdvancedSegments(license: LicenseCache): boolean {
 	return hasFeature(license, "advanced_segments");
 }
 
-/** Returns true if the user is on the free plan. */
 export function isFreePlan(license: LicenseCache): boolean {
 	return license.plan === "free";
+}
+
+/** Whether the license is in grace period (validation failed but not expired yet). */
+export function isInGracePeriod(license: LicenseCache): boolean {
+	return !!license.graceEndsAt && new Date(license.graceEndsAt) > new Date();
+}
+
+// ---------------------------------------------------------------------------
+// Error reporting
+// ---------------------------------------------------------------------------
+
+function report(error: unknown): void {
+	if (error instanceof Error) {
+		console.error(`[analytics-hub:license] ${error.message}`, error.stack);
+	} else {
+		console.error("[analytics-hub:license] Unknown error", error);
+	}
 }
