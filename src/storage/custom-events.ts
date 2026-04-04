@@ -29,7 +29,13 @@ export async function queryCustomEvents(
 	name?: string,
 ): Promise<Array<{ id: string; data: CustomEvent }>> {
 	const extraWhere = name ? { name } : undefined;
-	return queryByDateRange(collection, "createdAt", dateFrom, dateTo, extraWhere);
+	return queryByDateRange(
+		collection,
+		"createdAt",
+		`${dateFrom}T00:00:00.000Z`,
+		`${dateTo}T23:59:59.999Z`,
+		extraWhere,
+	);
 }
 
 /**

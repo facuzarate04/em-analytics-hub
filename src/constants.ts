@@ -58,9 +58,7 @@ export const DEFAULT_DATE_RANGE_DAYS = 7;
 // Native Tracking                      |  ✅  |  ✅  |  ✅
 // UTM — source/medium/campaign         |  ✅  |  ✅  |  ✅
 // UTM — term/content                   |  ❌  |  ✅  |  ✅
-// UTM — campaign comparison            |  ❌  |  ✅  |  ✅
-// UTM — conversion/engagement analysis |  ❌  |  ✅  |  ✅
-// UTM — export                         |  ❌  |  ✅  |  ✅
+// Campaign intelligence                |  ❌  |  ✅  |  ✅
 // Custom Events — tracking             |  ✅  |  ✅  |  ✅
 // Custom Events — list + counts        |  ✅  |  ✅  |  ✅
 // Custom Events — trend by event       |  ✅  |  ✅  |  ✅
@@ -68,16 +66,9 @@ export const DEFAULT_DATE_RANGE_DAYS = 7;
 // Custom Events — property filters     |  ❌  |  ✅  |  ✅
 // Custom Events — funnels              |  ❌  |  ✅  |  ✅
 // Countries                            |  ❌  |  ✅  |  ✅
-// Goals / Conversion Tracking          |  ❌  |  ✅  |  ✅
+// Goals                                |  ❌  |  ✅  |  ✅
 // Forms Analytics                      |  ❌  |  ✅  |  ✅
-// Search Analytics                     |  ❌  |  ✅  |  ✅
-// Annotations                          |  ❌  |  ✅  |  ✅
-// Alerts / Anomaly Detection           |  ❌  |  ✅  |  ✅
 // Period Comparison                    |  ❌  |  ✅  |  ✅
-// Export                               |  ❌  |  ✅  |  ✅
-// Advanced Segments                    |  ❌  |  ✅  |  ✅
-// Multi-Site                           |  ❌  |  ✅  |  ✅
-// Integrations                         |  ❌  |  ✅  |  ✅
 // SSO                                  |  ❌  |  ❌  |  ✅
 // Advanced Permissions                 |  ❌  |  ❌  |  ✅
 // Executive Reports                    |  ❌  |  ❌  |  ✅
@@ -123,9 +114,7 @@ export const PLANS: Record<string, PlanDefinition> = {
 			"custom_events_trends",
 			// UTM advanced
 			"utm_term_content",
-			"utm_campaign_comparison",
-			"utm_conversion_analysis",
-			"utm_export",
+			"campaign_intelligence",
 			// Custom events advanced
 			"custom_events_property_breakdowns",
 			"custom_events_property_filters",
@@ -134,14 +123,7 @@ export const PLANS: Record<string, PlanDefinition> = {
 			"countries",
 			"goals",
 			"forms_analytics",
-			"search_analytics",
-			"annotations",
-			"alerts",
 			"period_comparison",
-			"export",
-			"advanced_segments",
-			"multi_site",
-			"integrations",
 		],
 	},
 	business: {
@@ -161,23 +143,14 @@ export const PLANS: Record<string, PlanDefinition> = {
 			"custom_events_list",
 			"custom_events_trends",
 			"utm_term_content",
-			"utm_campaign_comparison",
-			"utm_conversion_analysis",
-			"utm_export",
+			"campaign_intelligence",
 			"custom_events_property_breakdowns",
 			"custom_events_property_filters",
 			"custom_events_funnels",
 			"countries",
 			"goals",
 			"forms_analytics",
-			"search_analytics",
-			"annotations",
-			"alerts",
 			"period_comparison",
-			"export",
-			"advanced_segments",
-			"multi_site",
-			"integrations",
 			// Business-only features
 			"sso",
 			"advanced_permissions",
@@ -195,6 +168,11 @@ export const PLANS: Record<string, PlanDefinition> = {
 export const KV_KEYS = {
 	DAILY_SALT: "state:daily_salt",
 	LICENSE_CACHE: "state:license_cache",
+	LICENSE_KEY: "state:license_key",
+	GOAL_DEFINITIONS: "state:goal_definitions",
+	FUNNEL_DEFINITIONS: "state:funnel_definitions",
+	FUNNEL_BUILDER_STEPS: "state:funnel_builder_steps",
+	SETTINGS_LICENSE_KEY: "settings:licenseKey",
 	SETTINGS_EXCLUDED_PATHS: "settings:excludedPaths",
 	SETTINGS_EXCLUDED_IPS: "settings:excludedIPs",
 	SETTINGS_RETENTION_DAYS: "settings:retentionDays",
