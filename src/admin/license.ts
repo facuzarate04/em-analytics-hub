@@ -35,8 +35,8 @@ export function buildLicenseStatus(license: LicenseCache): Record<string, unknow
 				{ label: "Status", value: "Active" },
 			]),
 			banner(
-				"Upgrade to Pro",
-				"Unlock funnels, goals, campaign intelligence, integrations, 365-day retention, and use on up to 3 sites.",
+				"Pro",
+				"Unlock funnels, campaign intelligence, and integrations.",
 			),
 		);
 
