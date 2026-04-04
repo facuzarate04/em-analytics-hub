@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import type { PluginContext } from "emdash";
-import type { LicenseCache, LicenseCheckResult } from "../types.js";
+import type { LicenseCache } from "../types.js";
 import {
 	getLicense,
 	isFreePlan,
@@ -13,7 +13,7 @@ import {
 } from "../license/features.js";
 import type { LicenseProvider } from "../types.js";
 import { KV_KEYS } from "../constants.js";
-import { header, banner, context, statsBlock, divider } from "./components.js";
+import { header, banner, statsBlock } from "./components.js";
 
 // ---------------------------------------------------------------------------
 // License status page builder

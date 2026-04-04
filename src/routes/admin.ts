@@ -93,12 +93,26 @@ export async function handleAdmin(
 		return handleDeactivateLicense(ctx, _provider);
 	}
 
-	// ─── Settings Saved (trigger license activation check) ───────
+	// ─── Settings Saved (trigger license activation only if key changed) ──
 	if (
 		interaction.type === "settings_saved"
 	) {
 		if (!_provider) return { blocks: [] };
-		return handleActivateLicense(ctx, _provider);
+
+		const newKey = await ctx.kv.get<string>("settings:licenseKey") ?? "";
+		const current = await getLicense(ctx.kv);
+		const currentKey = current.instanceId ? "activated" : "";
+
+		// Only activate if a new key was entered (or removed)
+		if (newKey && !current.instanceId) {
+			return handleActivateLicense(ctx, _provider);
+		}
+		if (!newKey && current.instanceId) {
+			return handleDeactivateLicense(ctx, _provider);
+		}
+
+		// Key unchanged — just return current status
+		return buildLicenseStatus(current);
 	}
 
 	return { blocks: [] };
