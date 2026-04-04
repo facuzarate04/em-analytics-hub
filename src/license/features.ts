@@ -76,6 +76,7 @@ export async function activateLicense(
 	const result = await provider.activate(licenseKey, siteUrl);
 
 	if (result.valid) {
+		await kv.set(KV_KEYS.LICENSE_KEY, licenseKey);
 		const cache: LicenseCache = {
 			plan: result.plan,
 			validUntil: result.validUntil,
@@ -108,15 +109,19 @@ export async function validateLicense(
 	licenseKey?: string,
 ): Promise<LicenseCache> {
 	const current = await getLicense(kv);
+	const storedKey = (await kv.get<string>(KV_KEYS.LICENSE_KEY)) ?? "";
 	const key = licenseKey ?? "";
 
 	// ── Key removed → deactivate and revert to free ─────────────
 	if (!key && current.instanceId) {
 		try {
-			await provider.deactivate("", current.instanceId);
+			if (storedKey) {
+				await provider.deactivate(storedKey, current.instanceId);
+			}
 		} catch {
 			// Best effort
 		}
+		await kv.set(KV_KEYS.LICENSE_KEY, "");
 		await saveLicense(kv, FREE_LICENSE);
 		return FREE_LICENSE;
 	}
@@ -124,6 +129,22 @@ export async function validateLicense(
 	// ── No key set and never activated → nothing to do ───────────
 	if (!key) {
 		return current;
+	}
+
+	// ── Key changed → release prior activation and activate the new key ─────
+	if (storedKey && storedKey !== key && current.instanceId) {
+		try {
+			await provider.deactivate(storedKey, current.instanceId);
+		} catch {
+			// Best effort
+		}
+		await saveLicense(kv, FREE_LICENSE);
+		const site = siteUrl ?? current.siteUrl ?? "unknown";
+		const result = await activateLicense(kv, provider, key, site);
+		if (result.valid) {
+			return getLicense(kv);
+		}
+		return FREE_LICENSE;
 	}
 
 	// ── Key provided but not activated yet → activate it ────────
@@ -169,15 +190,17 @@ export async function deactivateLicense(
 	provider: LicenseProvider,
 ): Promise<void> {
 	const current = await getLicense(kv);
+	const storedKey = (await kv.get<string>(KV_KEYS.LICENSE_KEY)) ?? "";
 
-	if (current.instanceId) {
+	if (current.instanceId && storedKey) {
 		try {
-			await provider.deactivate("", current.instanceId);
+			await provider.deactivate(storedKey, current.instanceId);
 		} catch (error) {
 			report(error);
 		}
 	}
 
+	await kv.set(KV_KEYS.LICENSE_KEY, "");
 	await saveLicense(kv, FREE_LICENSE);
 }
 
@@ -304,23 +327,23 @@ export function canViewUtmTermContent(license: LicenseCache): boolean {
 }
 
 export function canViewCampaignIntelligence(license: LicenseCache): boolean {
-	return hasFeature(license, "utm_campaign_comparison");
-}
-
-export function canExport(license: LicenseCache): boolean {
-	return hasFeature(license, "export");
+	return hasFeature(license, "campaign_intelligence");
 }
 
 export function canViewCountries(license: LicenseCache): boolean {
 	return hasFeature(license, "countries");
 }
 
-export function canComparePeriods(license: LicenseCache): boolean {
-	return hasFeature(license, "period_comparison");
+export function canViewGoals(license: LicenseCache): boolean {
+	return hasFeature(license, "goals");
 }
 
-export function canUseAdvancedSegments(license: LicenseCache): boolean {
-	return hasFeature(license, "advanced_segments");
+export function canViewFormsAnalytics(license: LicenseCache): boolean {
+	return hasFeature(license, "forms_analytics");
+}
+
+export function canComparePeriods(license: LicenseCache): boolean {
+	return hasFeature(license, "period_comparison");
 }
 
 export function isFreePlan(license: LicenseCache): boolean {
