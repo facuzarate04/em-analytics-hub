@@ -2,17 +2,16 @@
 // Privacy utilities — IP hashing and bot detection
 // ---------------------------------------------------------------------------
 
+import { createHash } from "node:crypto";
+
 /**
  * Hashes an IP address with a daily-rotating salt using SHA-256.
  * Returns first 16 hex characters (8 bytes) for compact storage.
  * The daily rotation ensures visitors can't be cross-matched across days.
  */
 export async function hashIp(ip: string, salt: string): Promise<string> {
-	const encoder = new TextEncoder();
-	const data = encoder.encode(ip + salt);
-	const hash = await crypto.subtle.digest("SHA-256", data);
-	const arr = new Uint8Array(hash);
-	return Array.from(arr.slice(0, 8))
+	const hash = createHash("sha256").update(ip + salt).digest();
+	return Array.from(hash.subarray(0, 8))
 		.map((b) => b.toString(16).padStart(2, "0"))
 		.join("");
 }
