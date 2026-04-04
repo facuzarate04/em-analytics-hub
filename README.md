@@ -94,14 +94,25 @@ Add meta tags to your theme layouts to enable template and collection segmentati
 - Bot and crawler filtering
 - Configurable excluded paths and IPs
 
+## Pro
+
+One package, Pro unlocked with a valid license key.
+
+1. Purchase a Pro license
+2. Go to EmDash admin → Analytics Hub → Settings
+3. Paste your license key and save
+4. Pro features activate immediately
+
+Use on up to 3 sites. The free plan remains fully functional without a license key.
+
 ## Settings
 
 | Setting | Description | Default |
 |---------|-------------|---------|
 | Excluded Paths | Comma-separated path prefixes to skip | `/_emdash/,/admin/` |
 | Excluded IPs | Comma-separated IPs to filter | Empty |
-| Data Retention | Days to keep raw events | 30 |
-| License Key | Pro license key | Empty |
+| Data Retention | Days to keep raw events (Free: 30, Pro: 365) | 30 |
+| License Key | Pro license key (leave empty for free plan) | Empty |
 
 ## License
 
