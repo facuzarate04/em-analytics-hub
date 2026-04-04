@@ -43,11 +43,11 @@ const licenseProvider = isDevMode
 setLicenseProvider(licenseProvider);
 
 /**
- * Reads the license key from the ANALYTICS_HUB_LICENSE_KEY env var.
- * This is the most reliable approach since EmDash plugin options
- * are not propagated to the sandbox runtime via KV or ctx.
+ * Reads the license key from plugin settings first, then env var as fallback.
  */
-function getLicenseKey(): string {
+async function getLicenseKey(ctx: PluginContext): Promise<string> {
+	const fromSettings = (await ctx.kv.get<string>(KV_KEYS.SETTINGS_LICENSE_KEY)) ?? "";
+	if (fromSettings) return fromSettings;
 	if (typeof process === "undefined") return "";
 	return process.env?.ANALYTICS_HUB_LICENSE_KEY ?? "";
 }
@@ -83,7 +83,7 @@ export default definePlugin({
 				// Activate license from plugin options or dev mode
 				try {
 					const siteUrl = ctx.site?.url ?? ctx.url?.("/") ?? "unknown";
-					const licenseKey = isDevMode ? "dev-mode" : getLicenseKey();
+					const licenseKey = isDevMode ? "dev-mode" : await getLicenseKey(ctx);
 
 					if (licenseKey) {
 						await activateLicense(ctx.kv, licenseProvider, licenseKey, siteUrl);
@@ -151,7 +151,7 @@ export default definePlugin({
 				if (event.name === CRON_JOBS.VALIDATE_LICENSE) {
 					try {
 						const siteUrl = ctx.site?.url ?? ctx.url?.("/") ?? "unknown";
-						const licenseKey = isDevMode ? "dev-mode" : getLicenseKey();
+						const licenseKey = isDevMode ? "dev-mode" : await getLicenseKey(ctx);
 						await validateLicense(ctx.kv, licenseProvider, siteUrl, licenseKey);
 					} catch (error) {
 						report(error);

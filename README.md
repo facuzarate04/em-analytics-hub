@@ -50,18 +50,22 @@ import AnalyticsBeacon from "em-analytics-hub/astro";
 
 ### Pro
 
-- Funnels and goals
-- Campaign intelligence (conversion and engagement analysis)
-- Forms and search analytics
+- Funnels
+- Goals
+- Forms analytics
+- Campaign intelligence
 - Custom event property breakdowns and filters
-- Annotations and alerts
 - Period comparison
-- Data export
 - Countries breakdown
-- Advanced segments
 - 365-day retention
-- Up to 3 sites
-- External integrations
+- Extended date ranges
+- Up to 3 sites per license
+
+Goals and funnels can be configured from dedicated admin pages:
+
+- `Analytics`
+- `Goals`
+- `Funnels`
 
 ## Custom Events
 
@@ -104,19 +108,21 @@ Add meta tags to your theme layouts to enable template and collection segmentati
 
 ## Pro
 
-One package, Pro unlocked with a valid license key via environment variable.
+One package, Pro unlocked with a valid license key.
 
 1. Purchase a Pro license
-2. Add the key to your environment: `ANALYTICS_HUB_LICENSE_KEY=XXXX-XXXX`
-3. Restart the server — Pro features activate automatically
+2. Paste the key into the plugin settings in EmDash
+3. Open the Analytics page — Pro features activate on this site
+4. Configure goals and funnels from the plugin admin pages
 
-Use on up to 3 sites. The free plan remains fully functional without a license key.
+You can also set `ANALYTICS_HUB_LICENSE_KEY` as an environment variable if you prefer managing licensing at deploy time.
 
 ## Settings
 
 | Setting | Type | Description | Default |
 |---------|------|-------------|---------|
-| `ANALYTICS_HUB_LICENSE_KEY` | Env var | Pro license key | Empty |
+| Pro License Key | Plugin setting | Lemon Squeezy license key for this site | Empty |
+| `ANALYTICS_HUB_LICENSE_KEY` | Env var | Optional deploy-time fallback license key | Empty |
 | Excluded Paths | Plugin setting | Comma-separated path prefixes to skip | `/_emdash/,/admin/` |
 | Excluded IPs | Plugin setting | Comma-separated IPs to filter | Empty |
 | Data Retention | Plugin setting | Days to keep raw events (Free: 30, Pro: 365) | 30 |

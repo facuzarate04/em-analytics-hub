@@ -73,15 +73,23 @@ export function analyticsHub(options?: AnalyticsHubOptions): PluginDescriptor {
 		},
 		adminPages: [
 			{ path: "/analytics", label: "Analytics", icon: "bar-chart" },
+			{ path: "/analytics/goals", label: "Goals", icon: "target" },
+			{ path: "/analytics/funnels", label: "Funnels", icon: "trending-up" },
 		],
 		adminWidgets: [
 			{ id: "site-overview", title: "Site Overview", size: "full" },
 		],
-		admin: {
-			settingsSchema: {
-				excludedPaths: {
-					type: "string",
-					label: "Excluded Paths",
+			admin: {
+				settingsSchema: {
+					licenseKey: {
+						type: "secret",
+						label: "Pro License Key",
+						description:
+							"Paste your Lemon Squeezy license key to unlock Pro features on this site.",
+					},
+					excludedPaths: {
+						type: "string",
+						label: "Excluded Paths",
 					description:
 						"Comma-separated path prefixes to exclude from tracking (e.g. /_emdash/,/admin/)",
 					default: DEFAULT_EXCLUDED_PATHS,
