@@ -82,6 +82,13 @@ export default definePlugin({
 					await ctx.cron.cancel(CRON_JOBS.PRUNE_EVENTS);
 					await ctx.cron.cancel(CRON_JOBS.VALIDATE_LICENSE);
 				}
+
+				// Release the license activation slot in the provider
+				try {
+					await deactivateLicense(ctx.kv, licenseProvider);
+				} catch (error) {
+					report(error);
+				}
 			},
 		},
 
@@ -124,7 +131,8 @@ export default definePlugin({
 
 				if (event.name === CRON_JOBS.VALIDATE_LICENSE) {
 					try {
-						await validateLicense(ctx.kv, licenseProvider);
+						const siteUrl = ctx.site?.url ?? ctx.url?.("/") ?? "unknown";
+						await validateLicense(ctx.kv, licenseProvider, siteUrl);
 					} catch (error) {
 						report(error);
 					}

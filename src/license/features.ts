@@ -93,30 +93,50 @@ export async function activateLicense(
 
 /**
  * Validates the current license using the configured provider.
- * Handles grace period logic:
- * - On success: updates cache, clears grace
- * - On failure: starts grace period if not already started
- * - After grace expires: degrades to free
+ * Also detects newly pasted license keys and activates them.
+ *
+ * Handles:
+ * - New key pasted after install → activate it
+ * - Key removed → deactivate and revert to free
+ * - Key changed → deactivate old, activate new
+ * - Existing activation → revalidate with grace period
  */
 export async function validateLicense(
 	kv: KVAccess,
 	provider: LicenseProvider,
+	siteUrl?: string,
 ): Promise<LicenseCache> {
 	const current = await getLicense(kv);
-
-	// No license key or not activated — nothing to validate
-	if (!current.instanceId || current.plan === "free") {
-		return current;
-	}
-
-	// Check if revalidation is needed
-	if (current.checkedAt && !isRevalidationDue(current.checkedAt)) {
-		return current;
-	}
-
-	// Get the license key from settings
 	const licenseKey = await kv.get<string>(KV_KEYS.SETTINGS_LICENSE_KEY);
+
+	// ── Key removed → deactivate and revert to free ─────────────
+	if (!licenseKey && current.instanceId) {
+		try {
+			await provider.deactivate("", current.instanceId);
+		} catch {
+			// Best effort — the key is gone, we can't deactivate cleanly
+		}
+		await saveLicense(kv, FREE_LICENSE);
+		return FREE_LICENSE;
+	}
+
+	// ── No key set and never activated → nothing to do ───────────
 	if (!licenseKey) {
+		return current;
+	}
+
+	// ── New key pasted (no instanceId yet) → activate it ────────
+	if (!current.instanceId || current.plan === "free") {
+		const site = siteUrl ?? current.siteUrl ?? "unknown";
+		const result = await activateLicense(kv, provider, licenseKey, site);
+		if (result.valid) {
+			return getLicense(kv);
+		}
+		return current;
+	}
+
+	// ── Existing activation — check if revalidation is due ──────
+	if (current.checkedAt && !isRevalidationDue(current.checkedAt)) {
 		return current;
 	}
 
