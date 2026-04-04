@@ -28,11 +28,12 @@ import { handleStats } from "./routes/stats.js";
 import { handleTopPages } from "./routes/top-pages.js";
 import { handleReferrers } from "./routes/referrers.js";
 import { handleCampaigns } from "./routes/campaigns.js";
-import { handleAdmin } from "./routes/admin.js";
+import { handleAdmin, setLicenseProvider } from "./routes/admin.js";
 
 // ─── License Provider (v1: Lemon Squeezy direct) ───────────────────────────
 
 const licenseProvider = new LemonSqueezyProvider();
+setLicenseProvider(licenseProvider);
 
 // ─── Plugin Definition ──────────────────────────────────────────────────────
 

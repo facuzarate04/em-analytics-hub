@@ -374,7 +374,7 @@ export async function buildDashboard(
 	if (isFreePlan(license) && agg.totalViews > 0) {
 		blocks.push(
 			context(
-				"Free plan — understand your site. Upgrade to Pro to connect, convert, and act: funnels, goals, campaign intelligence, integrations, and 365-day retention.",
+				"Free plan — understand your site. Upgrade to Pro to connect, convert, and act: funnels, goals, campaign intelligence, integrations, 365-day retention, and up to 3 sites.",
 			),
 		);
 	}

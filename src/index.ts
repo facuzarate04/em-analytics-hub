@@ -97,14 +97,14 @@ export function analyticsHub(options?: AnalyticsHubOptions): PluginDescriptor {
 					type: "number",
 					label: "Data Retention (days)",
 					description:
-						"How long to keep raw event data. Free plan: max 30 days.",
+						"How long to keep raw event data. Free: 30 days. Pro: up to 365 days.",
 					default: 30,
 				},
 				licenseKey: {
 					type: "secret",
 					label: "License Key",
 					description:
-						"Enter your Pro license key to unlock advanced features. Leave empty for the free plan.",
+						"Paste your Pro license key to activate. Use on up to 3 sites. Leave empty for the free plan.",
 					default: "",
 				},
 			},
