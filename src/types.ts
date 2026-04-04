@@ -24,6 +24,8 @@ export interface RawEvent {
 	utmSource: string;
 	utmMedium: string;
 	utmCampaign: string;
+	utmTerm: string;
+	utmContent: string;
 	seconds: number;
 	scrollDepth: number;
 	eventName: string;
@@ -86,6 +88,10 @@ export interface TrackPayload {
 	um?: string;
 	/** UTM campaign */
 	uc?: string;
+	/** UTM term (Pro) */
+	ut?: string;
+	/** UTM content (Pro) */
+	ux?: string;
 	/** Seconds of active attention (ping events) */
 	s?: number;
 	/** Scroll depth percentage (scroll events) */
@@ -204,4 +210,44 @@ export interface LicenseProvider {
 export interface AnalyticsHubOptions {
 	/** Comma-separated path prefixes to exclude from tracking. Default: "/_emdash/,/admin/" */
 	excludedPaths?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Goals / Funnels configuration
+// ---------------------------------------------------------------------------
+
+export type GoalType = "page" | "form" | "event";
+
+export interface GoalDefinition {
+	id: string;
+	name: string;
+	type: GoalType;
+	target: string;
+	active: boolean;
+}
+
+export interface GoalMetricRow {
+	goal: string;
+	completions: number;
+	visitors: number;
+	conversionRate: number;
+}
+
+export interface FunnelStepDefinition {
+	label: string;
+	type: GoalType;
+	target: string;
+}
+
+export interface FunnelDefinition {
+	id: string;
+	name: string;
+	active: boolean;
+	steps: FunnelStepDefinition[];
+}
+
+export interface DetectionCatalog {
+	pages: string[];
+	forms: string[];
+	events: string[];
 }

@@ -22,7 +22,7 @@
 		"./astro": "./dist/astro/BeaconScript.astro"
 	},
 	"scripts": {
-		"build": "tsc && cp -r src/astro dist/astro",
+		"build": "rm -rf dist && tsc && mkdir -p dist/astro && cp -r src/astro/. dist/astro",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"prepublishOnly": "npm test && npm run build"

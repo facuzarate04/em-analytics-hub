@@ -34,7 +34,7 @@ export function buildLicenseStatus(license: LicenseCache): Record<string, unknow
 			]),
 			banner(
 				"Pro",
-				"Unlock funnels, campaign intelligence, and integrations.",
+				"Unlock funnels, campaign intelligence, countries, and deeper event insights.",
 			),
 		);
 

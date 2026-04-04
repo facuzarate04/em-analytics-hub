@@ -15,6 +15,11 @@ import { writeCustomEvent } from "../storage/custom-events.js";
 
 const VALID_EVENT_TYPES = new Set<string>(EVENT_TYPES);
 
+function sanitizeUtmField(value: string | undefined): string {
+	if (!value) return "";
+	return value.trim().toLowerCase().slice(0, 256);
+}
+
 /**
  * Checks if a pathname should be excluded from tracking
  * based on the configured excluded paths list.
@@ -111,6 +116,8 @@ export async function handleTrack(
 		utmSource: utm.utmSource,
 		utmMedium: utm.utmMedium,
 		utmCampaign: utm.utmCampaign,
+		utmTerm: sanitizeUtmField(payload.ut),
+		utmContent: sanitizeUtmField(payload.ux),
 		seconds: payload.t === "ping" ? seconds : 0,
 		scrollDepth: payload.t === "scroll" ? (payload.d ?? 0) : 0,
 		eventName: payload.t === "custom" ? (payload.n ?? "").slice(0, MAX_EVENT_NAME_LENGTH) : "",

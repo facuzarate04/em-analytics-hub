@@ -51,7 +51,7 @@ export function tableBlock(
 	columns: Array<{ key: string; label: string }>,
 	rows: Array<Record<string, unknown>>,
 ): Record<string, unknown> {
-	return { type: "table", columns, rows };
+	return { type: "table", columns, rows, page_action_id: "noop" };
 }
 
 /** Creates a timeseries chart block. */
@@ -132,6 +132,13 @@ export function header(text: string): Record<string, unknown> {
 /** Creates a divider block. */
 export function divider(): Record<string, unknown> {
 	return { type: "divider" };
+}
+
+/** Creates a compact label/value explainer block. */
+export function fieldsBlock(
+	fields: Array<{ label: string; value: string }>,
+): Record<string, unknown> {
+	return { type: "fields", fields };
 }
 
 /** Creates a context/info text block. */
