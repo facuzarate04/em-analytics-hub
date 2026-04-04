@@ -101,7 +101,6 @@ export async function handleAdmin(
 
 		const newKey = await ctx.kv.get<string>("settings:licenseKey") ?? "";
 		const current = await getLicense(ctx.kv);
-		const currentKey = current.instanceId ? "activated" : "";
 
 		// Only activate if a new key was entered (or removed)
 		if (newKey && !current.instanceId) {
