@@ -1,0 +1,43 @@
+{
+	"name": "em-analytics-hub",
+	"version": "0.1.0",
+	"description": "CMS-aware, portable, privacy-first analytics hub for EmDash. Track pageviews, UTM campaigns, custom events, and more — segmented by route, template, and collection.",
+	"type": "module",
+	"license": "MIT",
+	"files": [
+		"src",
+		"!src/__tests__",
+		"LICENSE",
+		"README.md"
+	],
+	"exports": {
+		".": "./src/index.ts",
+		"./sandbox": "./src/sandbox-entry.ts",
+		"./astro": "./src/astro/BeaconScript.astro"
+	},
+	"scripts": {
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"build": "tsc"
+	},
+	"engines": {
+		"node": ">=18.0.0"
+	},
+	"peerDependencies": {
+		"emdash": "^0.1.0"
+	},
+	"devDependencies": {
+		"emdash": "^0.1.0",
+		"typescript": "^5.7.0",
+		"vitest": "^4.1.2"
+	},
+	"keywords": [
+		"emdash",
+		"emdash-plugin",
+		"analytics",
+		"analytics-hub",
+		"utm",
+		"privacy",
+		"portable"
+	]
+}

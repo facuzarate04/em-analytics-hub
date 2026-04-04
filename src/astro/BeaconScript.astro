@@ -1,0 +1,8 @@
+---
+import { generateBeaconScript } from "../beacon.js";
+
+const trackUrl = "/_emdash/api/plugins/analytics-hub/track";
+const script = generateBeaconScript(trackUrl);
+---
+
+<script is:inline set:html={script} />
