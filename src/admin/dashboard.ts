@@ -9,6 +9,7 @@ import { formatNumber, formatDuration, calculateTrend } from "../helpers/format.
 import {
 	getMaxDateRange,
 	isFreePlan,
+	isInGracePeriod,
 	canViewEventProperties,
 	canViewCountries,
 	canViewCampaignIntelligence,
@@ -348,14 +349,49 @@ export async function buildDashboard(
 		);
 	}
 
-	// ── Free plan nudge ──────────────────────────────────────────
-	if (isFreePlan(license) && agg.totalViews > 0) {
+	// ── License section ──────────────────────────────────────────
+	blocks.push(header("License"));
+
+	if (isFreePlan(license)) {
 		blocks.push(
+			statsBlock([
+				{ label: "Plan", value: "Free" },
+				{ label: "Status", value: "Active" },
+			]),
 			banner(
-				"Free plan active",
-				"Upgrade to unlock funnels, goals, integrations, and 365-day retention.",
+				"Upgrade to Pro",
+				"Paste your license key in the plugin settings to activate Pro. Unlock funnels, goals, campaign intelligence, and 365-day retention.",
 			),
 		);
+	} else {
+		// Pro/Business — show status and deactivate option
+		const planName = license.plan === "pro" ? "Pro" : "Business";
+		const statusItems = [
+			{ label: "Plan", value: planName },
+			{ label: "Status", value: isInGracePeriod(license) ? "Grace Period" : "Active" },
+		];
+		if (license.siteUrl) {
+			statusItems.push({ label: "Site", value: license.siteUrl });
+		}
+
+		blocks.push(statsBlock(statusItems));
+
+		if (isInGracePeriod(license)) {
+			blocks.push(
+				banner(
+					"Validation failed",
+					"Pro features remain active during the grace period. The plugin will retry automatically.",
+					"warning",
+				),
+			);
+		}
+
+		blocks.push({
+			type: "form",
+			block_id: "license-actions",
+			fields: [],
+			submit: { label: "Deactivate License", action_id: "deactivate_license" },
+		});
 	}
 
 	return { blocks };

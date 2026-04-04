@@ -4,14 +4,10 @@
 
 import type { PluginContext, RouteContext } from "emdash";
 import type { LicenseProvider } from "../types.js";
-import { getLicense } from "../license/features.js";
+import { getLicense, activateLicense, isFreePlan } from "../license/features.js";
 import { buildDashboard } from "../admin/dashboard.js";
 import { buildWidget } from "../admin/widget.js";
-import {
-	buildLicenseStatus,
-	handleActivateLicense,
-	handleDeactivateLicense,
-} from "../admin/license.js";
+import { handleDeactivateLicense } from "../admin/license.js";
 
 /** License provider injected by sandbox-entry. */
 let _provider: LicenseProvider | null = null;
@@ -52,6 +48,18 @@ export async function handleAdmin(
 		interaction.type === "page_load" &&
 		interaction.page === "/analytics"
 	) {
+		// If license key exists but not activated yet, activate on first page load
+		if (isFreePlan(license) && _provider) {
+			const licenseKey = typeof process !== "undefined" ? (process.env?.ANALYTICS_HUB_LICENSE_KEY ?? "") : "";
+			if (licenseKey) {
+				const siteUrl = (ctx as any).site?.url ?? (ctx as any).url?.("/") ?? "unknown";
+				const result = await activateLicense(ctx.kv, _provider, licenseKey, siteUrl);
+				if (result.valid) {
+					const updated = await getLicense(ctx.kv);
+					return buildDashboard(ctx, 7, updated);
+				}
+			}
+		}
 		return buildDashboard(ctx, 7, license);
 	}
 
@@ -67,23 +75,6 @@ export async function handleAdmin(
 		return buildDashboard(ctx, days, license);
 	}
 
-	// ─── License: Settings Page Load ─────────────────────────────
-	if (
-		interaction.type === "page_load" &&
-		interaction.page === "settings"
-	) {
-		return buildLicenseStatus(license);
-	}
-
-	// ─── License: Activate (key saved in settings) ───────────────
-	if (
-		interaction.type === "form_submit" &&
-		interaction.action_id === "activate_license"
-	) {
-		if (!_provider) return { blocks: [] };
-		return handleActivateLicense(ctx, _provider);
-	}
-
 	// ─── License: Deactivate ─────────────────────────────────────
 	if (
 		interaction.type === "form_submit" &&
@@ -91,27 +82,6 @@ export async function handleAdmin(
 	) {
 		if (!_provider) return { blocks: [] };
 		return handleDeactivateLicense(ctx, _provider);
-	}
-
-	// ─── Settings Saved (trigger license activation only if key changed) ──
-	if (
-		interaction.type === "settings_saved"
-	) {
-		if (!_provider) return { blocks: [] };
-
-		const newKey = await ctx.kv.get<string>("settings:licenseKey") ?? "";
-		const current = await getLicense(ctx.kv);
-
-		// Only activate if a new key was entered (or removed)
-		if (newKey && !current.instanceId) {
-			return handleActivateLicense(ctx, _provider);
-		}
-		if (!newKey && current.instanceId) {
-			return handleDeactivateLicense(ctx, _provider);
-		}
-
-		// Key unchanged — just return current status
-		return buildLicenseStatus(current);
 	}
 
 	return { blocks: [] };

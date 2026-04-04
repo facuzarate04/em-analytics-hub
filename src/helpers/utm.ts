@@ -11,15 +11,6 @@ export interface UtmParams {
 	utmContent: string;
 }
 
-/** Empty UTM params constant for reuse. */
-export const EMPTY_UTM: UtmParams = {
-	utmSource: "",
-	utmMedium: "",
-	utmCampaign: "",
-	utmTerm: "",
-	utmContent: "",
-};
-
 /** Maximum length for any single UTM value. */
 const MAX_UTM_LENGTH = 256;
 

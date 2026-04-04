@@ -46,8 +46,8 @@ export async function getLicense(kv: KVAccess): Promise<LicenseCache> {
 	try {
 		const cached = await kv.get<LicenseCache>(KV_KEYS.LICENSE_CACHE);
 		if (cached) return { ...FREE_LICENSE, ...cached };
-	} catch {
-		// KV read failed — fall back to free
+	} catch (error) {
+		report(error);
 	}
 	return FREE_LICENSE;
 }
@@ -93,42 +93,43 @@ export async function activateLicense(
 
 /**
  * Validates the current license using the configured provider.
- * Also detects newly pasted license keys and activates them.
+ * The license key is passed from plugin options (astro.config.mjs),
+ * not read from KV.
  *
  * Handles:
- * - New key pasted after install → activate it
- * - Key removed → deactivate and revert to free
- * - Key changed → deactivate old, activate new
+ * - Key provided but not activated → activate it
+ * - Key removed (empty) → deactivate and revert to free
  * - Existing activation → revalidate with grace period
  */
 export async function validateLicense(
 	kv: KVAccess,
 	provider: LicenseProvider,
 	siteUrl?: string,
+	licenseKey?: string,
 ): Promise<LicenseCache> {
 	const current = await getLicense(kv);
-	const licenseKey = await kv.get<string>(KV_KEYS.SETTINGS_LICENSE_KEY);
+	const key = licenseKey ?? "";
 
 	// ── Key removed → deactivate and revert to free ─────────────
-	if (!licenseKey && current.instanceId) {
+	if (!key && current.instanceId) {
 		try {
 			await provider.deactivate("", current.instanceId);
 		} catch {
-			// Best effort — the key is gone, we can't deactivate cleanly
+			// Best effort
 		}
 		await saveLicense(kv, FREE_LICENSE);
 		return FREE_LICENSE;
 	}
 
 	// ── No key set and never activated → nothing to do ───────────
-	if (!licenseKey) {
+	if (!key) {
 		return current;
 	}
 
-	// ── New key pasted (no instanceId yet) → activate it ────────
+	// ── Key provided but not activated yet → activate it ────────
 	if (!current.instanceId || current.plan === "free") {
 		const site = siteUrl ?? current.siteUrl ?? "unknown";
-		const result = await activateLicense(kv, provider, licenseKey, site);
+		const result = await activateLicense(kv, provider, key, site);
 		if (result.valid) {
 			return getLicense(kv);
 		}
@@ -140,7 +141,7 @@ export async function validateLicense(
 		return current;
 	}
 
-	const result = await provider.validate(licenseKey, current.instanceId);
+	const result = await provider.validate(key, current.instanceId);
 
 	if (result.valid) {
 		// Success — update cache, clear grace
@@ -170,13 +171,10 @@ export async function deactivateLicense(
 	const current = await getLicense(kv);
 
 	if (current.instanceId) {
-		const licenseKey = await kv.get<string>(KV_KEYS.SETTINGS_LICENSE_KEY);
-		if (licenseKey) {
-			try {
-				await provider.deactivate(licenseKey, current.instanceId);
-			} catch (error) {
-				report(error);
-			}
+		try {
+			await provider.deactivate("", current.instanceId);
+		} catch (error) {
+			report(error);
 		}
 	}
 

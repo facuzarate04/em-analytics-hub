@@ -198,7 +198,6 @@ export const KV_KEYS = {
 	SETTINGS_EXCLUDED_PATHS: "settings:excludedPaths",
 	SETTINGS_EXCLUDED_IPS: "settings:excludedIPs",
 	SETTINGS_RETENTION_DAYS: "settings:retentionDays",
-	SETTINGS_LICENSE_KEY: "settings:licenseKey",
 } as const;
 
 // ---------------------------------------------------------------------------

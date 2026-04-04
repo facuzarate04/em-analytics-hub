@@ -5,8 +5,7 @@
 import type { PluginContext } from "emdash";
 import type { LicenseCache } from "../types.js";
 import { today, dateNDaysAgo } from "../helpers/date.js";
-import { formatNumber } from "../helpers/format.js";
-import { calculateTrend } from "../helpers/format.js";
+import { formatNumber, calculateTrend } from "../helpers/format.js";
 import { queryStatsForRange } from "../storage/stats.js";
 import { aggregateStats } from "../helpers/aggregation.js";
 import { statsBlock, tableBlock } from "./components.js";

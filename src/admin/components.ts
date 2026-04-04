@@ -143,9 +143,8 @@ export function context(text: string): Record<string, unknown> {
 export function banner(
 	title: string,
 	description: string,
-	variant: "default" | "warning" | "success" = "default",
 ): Record<string, unknown> {
-	return { type: "banner", title, description, variant };
+	return { type: "banner", title, description, variant: "default" };
 }
 
 /** Creates a two-column layout block. */

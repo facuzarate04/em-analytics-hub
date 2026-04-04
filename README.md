@@ -24,7 +24,15 @@ export default defineConfig({
 });
 ```
 
-The tracking beacon is injected automatically into all pages. No theme changes required.
+Add the beacon component to your theme layout:
+
+```astro
+---
+import AnalyticsBeacon from "em-analytics-hub/astro";
+---
+
+<AnalyticsBeacon />
+```
 
 ## Features
 
@@ -96,23 +104,22 @@ Add meta tags to your theme layouts to enable template and collection segmentati
 
 ## Pro
 
-One package, Pro unlocked with a valid license key.
+One package, Pro unlocked with a valid license key via environment variable.
 
 1. Purchase a Pro license
-2. Go to EmDash admin → Analytics Hub → Settings
-3. Paste your license key and save
-4. Pro features activate immediately
+2. Add the key to your environment: `ANALYTICS_HUB_LICENSE_KEY=XXXX-XXXX`
+3. Restart the server — Pro features activate automatically
 
 Use on up to 3 sites. The free plan remains fully functional without a license key.
 
 ## Settings
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| Excluded Paths | Comma-separated path prefixes to skip | `/_emdash/,/admin/` |
-| Excluded IPs | Comma-separated IPs to filter | Empty |
-| Data Retention | Days to keep raw events (Free: 30, Pro: 365) | 30 |
-| License Key | Pro license key (leave empty for free plan) | Empty |
+| Setting | Type | Description | Default |
+|---------|------|-------------|---------|
+| `ANALYTICS_HUB_LICENSE_KEY` | Env var | Pro license key | Empty |
+| Excluded Paths | Plugin setting | Comma-separated path prefixes to skip | `/_emdash/,/admin/` |
+| Excluded IPs | Plugin setting | Comma-separated IPs to filter | Empty |
+| Data Retention | Plugin setting | Days to keep raw events (Free: 30, Pro: 365) | 30 |
 
 ## License
 

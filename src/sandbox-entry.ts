@@ -22,6 +22,7 @@ import {
 	FREE_LICENSE,
 } from "./license/features.js";
 import { LemonSqueezyProvider } from "./license/providers/lemon-squeezy.js";
+import { DevLicenseProvider, shouldUseDevProvider } from "./license/providers/dev.js";
 import { pruneOlderThan } from "./storage/queries.js";
 import { handleTrack } from "./routes/track.js";
 import { handleStats } from "./routes/stats.js";
@@ -30,10 +31,26 @@ import { handleReferrers } from "./routes/referrers.js";
 import { handleCampaigns } from "./routes/campaigns.js";
 import { handleAdmin, setLicenseProvider } from "./routes/admin.js";
 
-// ─── License Provider (v1: Lemon Squeezy direct) ───────────────────────────
+// ─── License Provider ───────────────────────────────────────────────────────
+// DevLicenseProvider: requires EM_ANALYTICS_HUB_DEV_LICENSE=1 AND NODE_ENV !== "production"
+// LemonSqueezyProvider: used in all other cases (including production)
 
-const licenseProvider = new LemonSqueezyProvider();
+const isDevMode = shouldUseDevProvider();
+const licenseProvider = isDevMode
+	? new DevLicenseProvider()
+	: new LemonSqueezyProvider();
+
 setLicenseProvider(licenseProvider);
+
+/**
+ * Reads the license key from the ANALYTICS_HUB_LICENSE_KEY env var.
+ * This is the most reliable approach since EmDash plugin options
+ * are not propagated to the sandbox runtime via KV or ctx.
+ */
+function getLicenseKey(): string {
+	if (typeof process === "undefined") return "";
+	return process.env?.ANALYTICS_HUB_LICENSE_KEY ?? "";
+}
 
 // ─── Plugin Definition ──────────────────────────────────────────────────────
 
@@ -63,11 +80,12 @@ export default definePlugin({
 					});
 				}
 
-				// If a license key is already configured, try to activate it
+				// Activate license from plugin options or dev mode
 				try {
-					const licenseKey = await ctx.kv.get<string>(KV_KEYS.SETTINGS_LICENSE_KEY);
+					const siteUrl = ctx.site?.url ?? ctx.url?.("/") ?? "unknown";
+					const licenseKey = isDevMode ? "dev-mode" : getLicenseKey();
+
 					if (licenseKey) {
-						const siteUrl = ctx.site?.url ?? ctx.url?.("/") ?? "unknown";
 						await activateLicense(ctx.kv, licenseProvider, licenseKey, siteUrl);
 					}
 				} catch (error) {
@@ -133,7 +151,8 @@ export default definePlugin({
 				if (event.name === CRON_JOBS.VALIDATE_LICENSE) {
 					try {
 						const siteUrl = ctx.site?.url ?? ctx.url?.("/") ?? "unknown";
-						await validateLicense(ctx.kv, licenseProvider, siteUrl);
+						const licenseKey = isDevMode ? "dev-mode" : getLicenseKey();
+						await validateLicense(ctx.kv, licenseProvider, siteUrl, licenseKey);
 					} catch (error) {
 						report(error);
 					}
