@@ -72,6 +72,14 @@ Goals and funnels can be configured from dedicated admin pages:
 - `Goals`
 - `Funnels`
 
+## Complementary Plugins
+
+If you want a lighter, post-focused analytics experience, pair this plugin with [em-content-insights](https://github.com/facuzarate04/em-content-insights).
+
+- `em-analytics-hub` is the broader analytics layer for campaigns, custom events, funnels, goals, and forms.
+- `em-content-insights` is optimized for editorial and post-level performance inside EmDash.
+- They can coexist in the same EmDash installation when you want both business analytics and content analytics.
+
 ## Custom Events
 
 Track custom events from your theme or pages:
