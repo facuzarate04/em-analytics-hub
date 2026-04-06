@@ -284,6 +284,53 @@ describe("CloudflareIngestionBackend", () => {
 	});
 
 	// -----------------------------------------------------------------------
+	// D1: custom events → daily_custom_events table
+	// -----------------------------------------------------------------------
+
+	it("writes custom event to D1 daily_custom_events", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({
+			type: "custom",
+			eventName: "signup",
+			eventProps: '{"plan":"pro"}',
+		}), storage);
+
+		const table = d1._tables.get("daily_custom_events");
+		expect(table).toBeDefined();
+		expect(table!.rows.length).toBe(1);
+		expect(table!.rows[0].event_name).toBe("signup");
+		expect(table!.rows[0].count).toBe(1);
+	});
+
+	it("aggregates custom event counts in D1", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "custom", eventName: "click" }), storage);
+		await backend.ingest(makeEvent({ type: "custom", eventName: "click" }), storage);
+		await backend.ingest(makeEvent({ type: "custom", eventName: "signup" }), storage);
+
+		const table = d1._tables.get("daily_custom_events");
+		expect(table!.rows.length).toBe(2);
+		const click = table!.rows.find((r) => r.event_name === "click");
+		expect(click?.count).toBe(2);
+		const signup = table!.rows.find((r) => r.event_name === "signup");
+		expect(signup?.count).toBe(1);
+	});
+
+	it("does NOT write custom event to D1 when eventName is empty", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "custom", eventName: "" }), storage);
+
+		const table = d1._tables.get("daily_custom_events");
+		expect(table?.rows.length ?? 0).toBe(0);
+	});
+
+	// -----------------------------------------------------------------------
 	// Portable storage: events + custom_events written, daily_stats NOT written
 	// -----------------------------------------------------------------------
 

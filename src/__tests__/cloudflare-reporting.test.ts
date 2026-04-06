@@ -20,6 +20,7 @@ async function seedData(db: ReturnType<typeof createMockD1>, data: {
 	referrers?: Array<{ date: string; referrer: string; count: number }>;
 	countries?: Array<{ date: string; country: string; count: number }>;
 	campaigns?: Array<{ date: string; dimension: string; name: string; count: number }>;
+	customEvents?: Array<{ date: string; event_name: string; count: number }>;
 }) {
 	for (const p of data.pages ?? []) {
 		await db.prepare(
@@ -51,6 +52,11 @@ async function seedData(db: ReturnType<typeof createMockD1>, data: {
 		await db.prepare(
 			`INSERT INTO daily_campaigns (date, dimension, name, count) VALUES (?, ?, ?, ?)`,
 		).bind(c.date, c.dimension, c.name, c.count).run();
+	}
+	for (const ce of data.customEvents ?? []) {
+		await db.prepare(
+			`INSERT INTO daily_custom_events (date, event_name, count) VALUES (?, ?, ?)`,
+		).bind(ce.date, ce.event_name, ce.count).run();
 	}
 }
 
@@ -472,6 +478,93 @@ describe("CloudflareReportingBackend", () => {
 			expect(result[1].name).toBe("facebook");
 			expect(result[1].views).toBe(40);
 			expect(result[1].reads).toBe(16); // 40 * 0.4
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// getCustomEvents
+	// -----------------------------------------------------------------------
+
+	describe("getCustomEvents", () => {
+		it("returns empty for no data", async () => {
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, dummyStorage);
+			expect(result.events).toEqual([]);
+			expect(result.trends).toEqual({});
+		});
+
+		it("returns events sorted by count descending", async () => {
+			await seedData(db, {
+				customEvents: [
+					{ date: "2026-04-01", event_name: "signup", count: 5 },
+					{ date: "2026-04-01", event_name: "click", count: 20 },
+					{ date: "2026-04-01", event_name: "purchase", count: 3 },
+				],
+			});
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, dummyStorage);
+			expect(result.events).toEqual([
+				{ name: "click", count: 20 },
+				{ name: "signup", count: 5 },
+				{ name: "purchase", count: 3 },
+			]);
+		});
+
+		it("respects limit", async () => {
+			await seedData(db, {
+				customEvents: [
+					{ date: "2026-04-01", event_name: "a", count: 10 },
+					{ date: "2026-04-01", event_name: "b", count: 5 },
+					{ date: "2026-04-01", event_name: "c", count: 1 },
+				],
+			});
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 2 }, dummyStorage);
+			expect(result.events).toHaveLength(2);
+			expect(result.events[0].name).toBe("a");
+			expect(result.events[1].name).toBe("b");
+		});
+
+		it("aggregates across multiple dates", async () => {
+			await seedData(db, {
+				customEvents: [
+					{ date: "2026-04-01", event_name: "signup", count: 3 },
+					{ date: "2026-04-02", event_name: "signup", count: 7 },
+					{ date: "2026-04-02", event_name: "click", count: 2 },
+				],
+			});
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, dummyStorage);
+			expect(result.events[0]).toEqual({ name: "signup", count: 10 });
+			expect(result.events[1]).toEqual({ name: "click", count: 2 });
+		});
+
+		it("returns daily trends for top events", async () => {
+			await seedData(db, {
+				customEvents: [
+					{ date: "2026-04-01", event_name: "signup", count: 3 },
+					{ date: "2026-04-02", event_name: "signup", count: 7 },
+					{ date: "2026-04-01", event_name: "click", count: 5 },
+				],
+			});
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, dummyStorage);
+
+			expect(result.trends["signup"]).toBeDefined();
+			expect(result.trends["signup"]).toHaveLength(2);
+			// Sorted by date
+			expect(result.trends["signup"][0][1]).toBe(3); // Apr 1
+			expect(result.trends["signup"][1][1]).toBe(7); // Apr 2
+
+			expect(result.trends["click"]).toBeDefined();
+			expect(result.trends["click"]).toHaveLength(1);
+			expect(result.trends["click"][0][1]).toBe(5);
+		});
+
+		it("filters by date range", async () => {
+			await seedData(db, {
+				customEvents: [
+					{ date: "2026-03-31", event_name: "signup", count: 100 },
+					{ date: "2026-04-01", event_name: "signup", count: 5 },
+				],
+			});
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, dummyStorage);
+			expect(result.events).toEqual([{ name: "signup", count: 5 }]);
 		});
 	});
 });

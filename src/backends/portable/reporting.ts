@@ -11,10 +11,15 @@ import type {
 	CampaignsReport,
 	CampaignIntelligenceQuery,
 	CampaignIntelligenceEntry,
+	CustomEventsReportQuery,
+	CustomEventsReport,
 } from "../../reporting/types.js";
+import type { CustomEvent } from "../../types.js";
+import type { StorageCollection } from "../../storage/queries.js";
 import { queryStatsForRange } from "../../storage/stats.js";
 import { aggregateStats } from "../../helpers/aggregation.js";
 import { aggregateCampaignIntelligence } from "../../helpers/campaign-intelligence.js";
+import { queryCustomEvents, aggregateCustomEvents, aggregateCustomEventTrends } from "../../storage/custom-events.js";
 
 function pct(part: number, total: number): number {
 	return total > 0 ? Math.round((part / total) * 100) : 0;
@@ -103,5 +108,28 @@ export class PortableReportingBackend implements AnalyticsReportingBackend {
 	async getCampaignIntelligence(query: CampaignIntelligenceQuery, storage: ReportingStorage): Promise<CampaignIntelligenceEntry[]> {
 		const items = await queryStatsForRange(storage.daily_stats, query.dateFrom, query.dateTo);
 		return aggregateCampaignIntelligence(items, query.dimension);
+	}
+
+	async getCustomEvents(query: CustomEventsReportQuery, storage: ReportingStorage): Promise<CustomEventsReport> {
+		const items = await queryCustomEvents(
+			storage.custom_events as StorageCollection<CustomEvent>,
+			query.dateFrom,
+			query.dateTo,
+		);
+
+		const counts = aggregateCustomEvents(items);
+		const events = Object.entries(counts)
+			.sort(([, a], [, b]) => b - a)
+			.slice(0, query.limit)
+			.map(([name, count]) => ({ name, count }));
+
+		const allTrends = aggregateCustomEventTrends(items);
+		const topNames = new Set(events.map((e) => e.name));
+		const trends: Record<string, number[][]> = {};
+		for (const [name, data] of Object.entries(allTrends)) {
+			if (topNames.has(name)) trends[name] = data;
+		}
+
+		return { events, trends };
 	}
 }

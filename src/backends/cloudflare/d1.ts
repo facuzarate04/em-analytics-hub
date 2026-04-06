@@ -90,6 +90,13 @@ CREATE TABLE IF NOT EXISTS daily_campaigns (
   count INTEGER DEFAULT 0,
   PRIMARY KEY (date, dimension, name)
 );
+
+CREATE TABLE IF NOT EXISTS daily_custom_events (
+  date TEXT NOT NULL,
+  event_name TEXT NOT NULL,
+  count INTEGER DEFAULT 0,
+  PRIMARY KEY (date, event_name)
+);
 `;
 
 let _schemaReady = false;

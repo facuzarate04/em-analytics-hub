@@ -1,8 +1,9 @@
-import type { DailyStats } from "../types.js";
+import type { DailyStats, CustomEvent } from "../types.js";
 import type { StorageCollection } from "../storage/queries.js";
 
 export interface ReportingStorage {
 	daily_stats: StorageCollection<DailyStats>;
+	custom_events: StorageCollection<CustomEvent>;
 }
 
 export interface StatsReportQuery {
@@ -92,10 +93,24 @@ export interface CampaignIntelligenceEntry {
 	recircRate: number;
 }
 
+export interface CustomEventsReportQuery {
+	dateFrom: string;
+	dateTo: string;
+	limit: number;
+}
+
+export interface CustomEventsReport {
+	/** Top events sorted by count descending. */
+	events: Array<{ name: string; count: number }>;
+	/** Daily timeseries per event name: name → [[timestamp, count], ...]. */
+	trends: Record<string, number[][]>;
+}
+
 export interface AnalyticsReportingBackend {
 	getStats(query: StatsReportQuery, storage: ReportingStorage): Promise<StatsReport>;
 	getTopPages(query: TopPagesReportQuery, storage: ReportingStorage): Promise<TopPageEntry[]>;
 	getReferrers(query: ReferrersReportQuery, storage: ReportingStorage): Promise<ReferrerEntry[]>;
 	getCampaigns(query: CampaignsReportQuery, storage: ReportingStorage): Promise<CampaignsReport>;
 	getCampaignIntelligence(query: CampaignIntelligenceQuery, storage: ReportingStorage): Promise<CampaignIntelligenceEntry[]>;
+	getCustomEvents(query: CustomEventsReportQuery, storage: ReportingStorage): Promise<CustomEventsReport>;
 }

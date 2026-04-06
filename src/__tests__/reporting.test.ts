@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PortableReportingBackend } from "../backends/portable/reporting.js";
-import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport } from "../reporting/service.js";
+import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport, getCustomEventsReport } from "../reporting/service.js";
 import type { ReportingStorage } from "../reporting/types.js";
 import type { DailyStats } from "../types.js";
 import { normalizeDailyStats } from "../helpers/aggregation.js";
@@ -13,7 +13,7 @@ function makeDailyStats(overrides: Partial<DailyStats> = {}): DailyStats {
 	});
 }
 
-function makeStorage(records: DailyStats[]): ReportingStorage {
+function makeStorage(records: DailyStats[], customEvents: any[] = []): ReportingStorage {
 	return {
 		daily_stats: {
 			get: vi.fn(),
@@ -27,7 +27,19 @@ function makeStorage(records: DailyStats[]): ReportingStorage {
 			}),
 			deleteMany: vi.fn(),
 		},
-	};
+		custom_events: {
+			get: vi.fn(),
+			put: vi.fn(),
+			query: vi.fn(async ({ cursor }: any) => {
+				if (cursor) return { items: [], cursor: undefined };
+				return {
+					items: customEvents.map((data, i) => ({ id: String(i), data })),
+					cursor: undefined,
+				};
+			}),
+			deleteMany: vi.fn(),
+		},
+	} as any;
 }
 
 // ─── PortableReportingBackend ──────────────────────────────────────────────
@@ -319,13 +331,56 @@ describe("PortableReportingBackend", () => {
 			expect(result[0].engagedViews).toBe(30);
 		});
 	});
+
+	describe("getCustomEvents", () => {
+		it("returns empty for no custom events", async () => {
+			const storage = makeStorage([], []);
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
+			expect(result.events).toEqual([]);
+			expect(result.trends).toEqual({});
+		});
+
+		it("returns events sorted by count descending", async () => {
+			const events = [
+				{ name: "click", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "click", pathname: "/p", props: {}, visitorId: "v2", createdAt: "2026-04-01T13:00:00.000Z" },
+				{ name: "signup", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T14:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
+			expect(result.events[0]).toEqual({ name: "click", count: 2 });
+			expect(result.events[1]).toEqual({ name: "signup", count: 1 });
+		});
+
+		it("respects limit", async () => {
+			const events = [
+				{ name: "a", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "b", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T13:00:00.000Z" },
+				{ name: "c", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T14:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 2 }, storage);
+			expect(result.events).toHaveLength(2);
+		});
+
+		it("returns trends for top events", async () => {
+			const events = [
+				{ name: "click", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T10:00:00.000Z" },
+				{ name: "click", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-02T10:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
+			expect(result.trends["click"]).toBeDefined();
+			expect(result.trends["click"]).toHaveLength(2);
+		});
+	});
 });
 
 // ─── Reporting service ─────────────────────────────────────────────────────
 
 describe("reporting service", () => {
 	it("getStatsReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn().mockResolvedValue({ views: 42 }), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn() };
+		const mockBackend = { getStats: vi.fn().mockResolvedValue({ views: 42 }), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getStatsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07" }, storage);
 
@@ -334,7 +389,7 @@ describe("reporting service", () => {
 	});
 
 	it("getTopPagesReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn().mockResolvedValue([]), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn() };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn().mockResolvedValue([]), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getTopPagesReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
 
@@ -343,7 +398,7 @@ describe("reporting service", () => {
 	});
 
 	it("getReferrersReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn().mockResolvedValue([]), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn() };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn().mockResolvedValue([]), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getReferrersReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 20 }, storage);
 
@@ -352,7 +407,7 @@ describe("reporting service", () => {
 	});
 
 	it("getCampaignsReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn().mockResolvedValue({ sources: [], mediums: [], campaigns: [] }), getCampaignIntelligence: vi.fn() };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn().mockResolvedValue({ sources: [], mediums: [], campaigns: [] }), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getCampaignsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07" }, storage);
 
@@ -361,11 +416,20 @@ describe("reporting service", () => {
 	});
 
 	it("getCampaignIntelligenceReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn().mockResolvedValue([]) };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn().mockResolvedValue([]), getCustomEvents: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getCampaignIntelligenceReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", dimension: "source" }, storage);
 
 		expect(mockBackend.getCampaignIntelligence).toHaveBeenCalled();
 		expect(result).toEqual([]);
+	});
+
+	it("getCustomEventsReport delegates to backend", async () => {
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn().mockResolvedValue({ events: [], trends: {} }) };
+		const storage = makeStorage([]);
+		const result = await getCustomEventsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
+
+		expect(mockBackend.getCustomEvents).toHaveBeenCalled();
+		expect(result).toEqual({ events: [], trends: {} });
 	});
 });

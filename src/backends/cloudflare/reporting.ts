@@ -20,6 +20,8 @@ import type {
 	CampaignsReport,
 	CampaignIntelligenceQuery,
 	CampaignIntelligenceEntry,
+	CustomEventsReportQuery,
+	CustomEventsReport,
 } from "../../reporting/types.js";
 import type { D1Database } from "./d1.js";
 import { ensureD1Schema } from "./d1.js";
@@ -324,6 +326,47 @@ export class CloudflareReportingBackend implements AnalyticsReportingBackend {
 				recircRate: pct(recircs, row.views),
 			};
 		});
+	}
+
+	async getCustomEvents(query: CustomEventsReportQuery, _storage: ReportingStorage): Promise<CustomEventsReport> {
+		await ensureD1Schema(this.db);
+		const { dateFrom, dateTo, limit } = query;
+
+		// Top events by total count
+		const eventRows = await this.db.prepare(
+			`SELECT event_name, SUM(count) as count
+			 FROM daily_custom_events
+			 WHERE date >= ? AND date <= ?
+			 GROUP BY event_name
+			 ORDER BY count DESC
+			 LIMIT ?`,
+		).bind(dateFrom, dateTo, limit).all<{ event_name: string; count: number }>();
+
+		const events = (eventRows.results ?? [])
+			.filter((r) => r.event_name !== "")
+			.map((r) => ({ name: r.event_name, count: r.count }));
+
+		// Daily trends for the top events
+		const topNames = events.map((e) => e.name);
+		const trends: Record<string, number[][]> = {};
+
+		if (topNames.length > 0) {
+			const placeholders = topNames.map(() => "?").join(", ");
+			const trendRows = await this.db.prepare(
+				`SELECT date, event_name, SUM(count) as count
+				 FROM daily_custom_events
+				 WHERE date >= ? AND date <= ? AND event_name IN (${placeholders})
+				 GROUP BY date, event_name
+				 ORDER BY date`,
+			).bind(dateFrom, dateTo, ...topNames).all<{ date: string; event_name: string; count: number }>();
+
+			for (const row of trendRows.results ?? []) {
+				if (!trends[row.event_name]) trends[row.event_name] = [];
+				trends[row.event_name].push([new Date(row.date).getTime(), row.count]);
+			}
+		}
+
+		return { events, trends };
 	}
 
 	// -----------------------------------------------------------------------

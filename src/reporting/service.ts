@@ -11,6 +11,8 @@ import type {
 	CampaignsReport,
 	CampaignIntelligenceQuery,
 	CampaignIntelligenceEntry,
+	CustomEventsReportQuery,
+	CustomEventsReport,
 } from "./types.js";
 
 export async function getStatsReport(
@@ -51,4 +53,12 @@ export async function getCampaignIntelligenceReport(
 	storage: ReportingStorage,
 ): Promise<CampaignIntelligenceEntry[]> {
 	return backend.getCampaignIntelligence(query, storage);
+}
+
+export async function getCustomEventsReport(
+	backend: AnalyticsReportingBackend,
+	query: CustomEventsReportQuery,
+	storage: ReportingStorage,
+): Promise<CustomEventsReport> {
+	return backend.getCustomEvents(query, storage);
 }

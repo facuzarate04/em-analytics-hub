@@ -202,6 +202,18 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 			);
 			break;
 		}
+
+		case "custom": {
+			if (event.eventName) {
+				stmts.push(
+					db.prepare(
+						`INSERT INTO daily_custom_events (date, event_name, count) VALUES (?, ?, ?)
+						 ON CONFLICT (date, event_name) DO UPDATE SET count = count + 1`,
+					).bind(date, event.eventName.slice(0, MAX_EVENT_NAME_LENGTH), 1),
+				);
+			}
+			break;
+		}
 	}
 
 	return stmts;

@@ -21,10 +21,9 @@ import {
 } from "../license/features.js";
 import {
 	queryCustomEvents,
-	aggregateCustomEvents,
-	aggregateCustomEventTrends,
 	aggregateCustomEventProperties,
 } from "../storage/custom-events.js";
+import { getCustomEventsReport } from "../reporting/service.js";
 import { aggregateConfiguredFunnel, aggregateFunnel, buildDefaultFunnelSteps } from "../helpers/funnels.js";
 import { aggregateConfiguredGoals, aggregateGoals } from "../helpers/goals.js";
 import { aggregateFormsAnalytics } from "../helpers/forms-analytics.js";
@@ -426,13 +425,12 @@ export async function buildDashboard(
 	}
 
 	// ── Custom Events + Property Breakdowns ──────────────────────
-	// LEGACY: Reads custom_events from portable storage directly.
-	// Needs per-event granularity for counts, trends, and property breakdowns.
-	// A future custom events reporting method could eliminate this dependency.
+	// Counts and trends: served by the reporting backend (D1 in CF mode, portable otherwise).
+	// Property breakdowns (Pro): LEGACY — still reads from portable storage directly
+	// because it needs per-event raw props. Migrate once D1 has a props table.
 	try {
-		const customEventItems = await queryCustomEvents(ctx.storage.custom_events as StorageCollection<CustomEvent>, dateFrom, dateTo);
-		const eventCounts = aggregateCustomEvents(customEventItems);
-		const eventEntries = Object.entries(eventCounts).sort(([, a], [, b]) => b - a).slice(0, 8);
+		const customEventsReport = await getCustomEventsReport(backend, { dateFrom, dateTo, limit: 8 }, storage);
+		const eventEntries = customEventsReport.events;
 
 		if (eventEntries.length > 0) {
 			blocks.push(
@@ -442,17 +440,16 @@ export async function buildDashboard(
 				header("Custom Events"),
 				tableBlock(
 					[{ key: "event", label: "Event" }, { key: "count", label: "Count" }],
-					eventEntries.map(([event, count]) => ({ event, count: formatNumber(count) })),
+					eventEntries.map((e) => ({ event: e.name, count: formatNumber(e.count) })),
 				),
 			);
 
 			if (canViewEventTrends(license)) {
-				const eventTrends = aggregateCustomEventTrends(customEventItems);
 				const trendSeries = eventEntries
 					.slice(0, 3)
-					.map(([event], index) => ({
-						name: event,
-						data: eventTrends[event] ?? [],
+					.map((e, index) => ({
+						name: e.name,
+						data: customEventsReport.trends[e.name] ?? [],
 						color: EVENT_TREND_COLORS[index % EVENT_TREND_COLORS.length],
 					}))
 					.filter((series) => series.data.length > 0);
@@ -466,8 +463,10 @@ export async function buildDashboard(
 			}
 
 			// Pro: Property breakdowns for top event
+			// LEGACY: Reads from portable storage — needs per-event raw props.
 			if (canViewEventProperties(license)) {
-				const topEventName = eventEntries[0][0];
+				const topEventName = eventEntries[0].name;
+				const customEventItems = await queryCustomEvents(ctx.storage.custom_events as StorageCollection<CustomEvent>, dateFrom, dateTo, topEventName);
 				const propBreakdowns = aggregateCustomEventProperties(customEventItems, topEventName);
 				const propKeys = Object.keys(propBreakdowns).slice(0, 2);
 				if (propKeys.length > 0) {
