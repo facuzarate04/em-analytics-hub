@@ -331,6 +331,80 @@ describe("CloudflareIngestionBackend", () => {
 	});
 
 	// -----------------------------------------------------------------------
+	// D1: form submissions → daily_form_submissions table
+	// -----------------------------------------------------------------------
+
+	it("writes form_submit to D1 daily_form_submissions", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({
+			type: "custom",
+			eventName: "form_submit",
+			eventProps: '{"form":"newsletter"}',
+		}), storage);
+
+		const table = d1._tables.get("daily_form_submissions");
+		expect(table).toBeDefined();
+		expect(table!.rows.length).toBe(1);
+		expect(table!.rows[0].form_name).toBe("newsletter");
+		expect(table!.rows[0].count).toBe(1);
+	});
+
+	it("writes *_submit events to D1 daily_form_submissions", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({
+			type: "custom",
+			eventName: "newsletter_submit",
+			eventProps: '{"source":"sidebar"}',
+		}), storage);
+
+		const table = d1._tables.get("daily_form_submissions");
+		expect(table!.rows.length).toBe(1);
+		expect(table!.rows[0].form_name).toBe("sidebar");
+	});
+
+	it("falls back to pathname when form/source props missing", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({
+			type: "custom",
+			eventName: "form_submit",
+			eventProps: "{}",
+			pathname: "/contact",
+		}), storage);
+
+		const table = d1._tables.get("daily_form_submissions");
+		expect(table!.rows.length).toBe(1);
+		expect(table!.rows[0].form_name).toBe("/contact");
+	});
+
+	it("aggregates form submission counts in D1", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "custom", eventName: "form_submit", eventProps: '{"form":"contact"}' }), storage);
+		await backend.ingest(makeEvent({ type: "custom", eventName: "form_submit", eventProps: '{"form":"contact"}' }), storage);
+
+		const table = d1._tables.get("daily_form_submissions");
+		expect(table!.rows.length).toBe(1);
+		expect(table!.rows[0].count).toBe(2);
+	});
+
+	it("does NOT write to daily_form_submissions for non-submit events", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "custom", eventName: "click", eventProps: '{"form":"test"}' }), storage);
+
+		const table = d1._tables.get("daily_form_submissions");
+		expect(table?.rows.length ?? 0).toBe(0);
+	});
+
+	// -----------------------------------------------------------------------
 	// Portable storage: events + custom_events written, daily_stats NOT written
 	// -----------------------------------------------------------------------
 

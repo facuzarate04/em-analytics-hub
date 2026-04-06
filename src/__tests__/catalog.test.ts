@@ -140,7 +140,7 @@ describe("buildCatalogFromStorage", () => {
 		} as any;
 	}
 
-	it("discovers pages and event names via reporting backend, forms from portable", async () => {
+	it("discovers pages, event names, and forms all via reporting backend", async () => {
 		const ctx = makeCtx(
 			[
 				makeDailyStats({ pathname: "/blog", views: 10 }),
@@ -159,7 +159,7 @@ describe("buildCatalogFromStorage", () => {
 		// Event names come from reporting backend (getCustomEvents)
 		expect(catalog.events).toContain("signup");
 		expect(catalog.events).toContain("form_submit");
-		// Forms come from portable storage (needs raw props)
+		// Forms come from reporting backend (getDetectedForms)
 		expect(catalog.forms).toContain("newsletter");
 	});
 
@@ -191,7 +191,7 @@ describe("buildCatalogFromStorage", () => {
 		expect(catalog.events).toContain("popular_event");
 	});
 
-	it("forms still detected from portable storage props", async () => {
+	it("forms detected via reporting backend (getDetectedForms)", async () => {
 		const ctx = makeCtx(
 			[],
 			[

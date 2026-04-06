@@ -41,6 +41,8 @@ export interface D1ExecResult {
 // daily_countries  — per (date, country) view counts
 // daily_campaigns  — per (date, dimension, name) view counts
 //                    dimension = 'source' | 'medium' | 'campaign'
+// daily_custom_events — per (date, event_name) custom event counts
+// daily_form_submissions — per (date, form_name) form submission counts
 // ---------------------------------------------------------------------------
 
 const SCHEMA_SQL = `
@@ -96,6 +98,13 @@ CREATE TABLE IF NOT EXISTS daily_custom_events (
   event_name TEXT NOT NULL,
   count INTEGER DEFAULT 0,
   PRIMARY KEY (date, event_name)
+);
+
+CREATE TABLE IF NOT EXISTS daily_form_submissions (
+  date TEXT NOT NULL,
+  form_name TEXT NOT NULL,
+  count INTEGER DEFAULT 0,
+  PRIMARY KEY (date, form_name)
 );
 `;
 

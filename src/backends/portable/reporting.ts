@@ -13,6 +13,7 @@ import type {
 	CampaignIntelligenceEntry,
 	CustomEventsReportQuery,
 	CustomEventsReport,
+	DetectedFormsQuery,
 } from "../../reporting/types.js";
 import type { CustomEvent } from "../../types.js";
 import type { StorageCollection } from "../../storage/queries.js";
@@ -131,5 +132,22 @@ export class PortableReportingBackend implements AnalyticsReportingBackend {
 		}
 
 		return { events, trends };
+	}
+
+	async getDetectedForms(query: DetectedFormsQuery, storage: ReportingStorage): Promise<string[]> {
+		const items = await queryCustomEvents(
+			storage.custom_events as StorageCollection<CustomEvent>,
+			query.dateFrom,
+			query.dateTo,
+		);
+
+		return Array.from(
+			new Set(
+				items
+					.filter((item) => item.data.name === "form_submit" || item.data.name.endsWith("_submit"))
+					.map((item) => String(item.data.props.form ?? item.data.props.source ?? item.data.pathname ?? ""))
+					.filter((value) => value.length > 0),
+			),
+		).slice(0, query.limit);
 	}
 }

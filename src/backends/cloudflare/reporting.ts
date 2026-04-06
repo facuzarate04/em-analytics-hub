@@ -22,6 +22,7 @@ import type {
 	CampaignIntelligenceEntry,
 	CustomEventsReportQuery,
 	CustomEventsReport,
+	DetectedFormsQuery,
 } from "../../reporting/types.js";
 import type { D1Database } from "./d1.js";
 import { ensureD1Schema } from "./d1.js";
@@ -367,6 +368,24 @@ export class CloudflareReportingBackend implements AnalyticsReportingBackend {
 		}
 
 		return { events, trends };
+	}
+
+	async getDetectedForms(query: DetectedFormsQuery, _storage: ReportingStorage): Promise<string[]> {
+		await ensureD1Schema(this.db);
+		const { dateFrom, dateTo, limit } = query;
+
+		const rows = await this.db.prepare(
+			`SELECT form_name, SUM(count) as count
+			 FROM daily_form_submissions
+			 WHERE date >= ? AND date <= ?
+			 GROUP BY form_name
+			 ORDER BY count DESC
+			 LIMIT ?`,
+		).bind(dateFrom, dateTo, limit).all<{ form_name: string; count: number }>();
+
+		return (rows.results ?? [])
+			.map((r) => r.form_name)
+			.filter((name) => name !== "");
 	}
 
 	// -----------------------------------------------------------------------

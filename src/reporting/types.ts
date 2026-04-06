@@ -106,6 +106,12 @@ export interface CustomEventsReport {
 	trends: Record<string, number[][]>;
 }
 
+export interface DetectedFormsQuery {
+	dateFrom: string;
+	dateTo: string;
+	limit: number;
+}
+
 export interface AnalyticsReportingBackend {
 	getStats(query: StatsReportQuery, storage: ReportingStorage): Promise<StatsReport>;
 	getTopPages(query: TopPagesReportQuery, storage: ReportingStorage): Promise<TopPageEntry[]>;
@@ -113,4 +119,6 @@ export interface AnalyticsReportingBackend {
 	getCampaigns(query: CampaignsReportQuery, storage: ReportingStorage): Promise<CampaignsReport>;
 	getCampaignIntelligence(query: CampaignIntelligenceQuery, storage: ReportingStorage): Promise<CampaignIntelligenceEntry[]>;
 	getCustomEvents(query: CustomEventsReportQuery, storage: ReportingStorage): Promise<CustomEventsReport>;
+	/** Returns unique form names detected from submit events in the date range. */
+	getDetectedForms(query: DetectedFormsQuery, storage: ReportingStorage): Promise<string[]>;
 }

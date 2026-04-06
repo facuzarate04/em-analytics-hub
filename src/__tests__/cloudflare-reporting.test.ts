@@ -21,6 +21,7 @@ async function seedData(db: ReturnType<typeof createMockD1>, data: {
 	countries?: Array<{ date: string; country: string; count: number }>;
 	campaigns?: Array<{ date: string; dimension: string; name: string; count: number }>;
 	customEvents?: Array<{ date: string; event_name: string; count: number }>;
+	formSubmissions?: Array<{ date: string; form_name: string; count: number }>;
 }) {
 	for (const p of data.pages ?? []) {
 		await db.prepare(
@@ -57,6 +58,11 @@ async function seedData(db: ReturnType<typeof createMockD1>, data: {
 		await db.prepare(
 			`INSERT INTO daily_custom_events (date, event_name, count) VALUES (?, ?, ?)`,
 		).bind(ce.date, ce.event_name, ce.count).run();
+	}
+	for (const fs of data.formSubmissions ?? []) {
+		await db.prepare(
+			`INSERT INTO daily_form_submissions (date, form_name, count) VALUES (?, ?, ?)`,
+		).bind(fs.date, fs.form_name, fs.count).run();
 	}
 }
 
@@ -565,6 +571,64 @@ describe("CloudflareReportingBackend", () => {
 			});
 			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, dummyStorage);
 			expect(result.events).toEqual([{ name: "signup", count: 5 }]);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// getDetectedForms
+	// -----------------------------------------------------------------------
+
+	describe("getDetectedForms", () => {
+		it("returns empty for no data", async () => {
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, dummyStorage);
+			expect(result).toEqual([]);
+		});
+
+		it("returns form names sorted by count descending", async () => {
+			await seedData(db, {
+				formSubmissions: [
+					{ date: "2026-04-01", form_name: "contact", count: 5 },
+					{ date: "2026-04-01", form_name: "newsletter", count: 20 },
+					{ date: "2026-04-01", form_name: "signup", count: 3 },
+				],
+			});
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, dummyStorage);
+			expect(result).toEqual(["newsletter", "contact", "signup"]);
+		});
+
+		it("respects limit", async () => {
+			await seedData(db, {
+				formSubmissions: [
+					{ date: "2026-04-01", form_name: "a", count: 10 },
+					{ date: "2026-04-01", form_name: "b", count: 5 },
+					{ date: "2026-04-01", form_name: "c", count: 1 },
+				],
+			});
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 2 }, dummyStorage);
+			expect(result).toHaveLength(2);
+		});
+
+		it("aggregates across multiple dates", async () => {
+			await seedData(db, {
+				formSubmissions: [
+					{ date: "2026-04-01", form_name: "contact", count: 3 },
+					{ date: "2026-04-02", form_name: "contact", count: 7 },
+					{ date: "2026-04-01", form_name: "newsletter", count: 2 },
+				],
+			});
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, dummyStorage);
+			expect(result).toEqual(["contact", "newsletter"]);
+		});
+
+		it("filters by date range", async () => {
+			await seedData(db, {
+				formSubmissions: [
+					{ date: "2026-03-31", form_name: "old_form", count: 100 },
+					{ date: "2026-04-01", form_name: "new_form", count: 1 },
+				],
+			});
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, dummyStorage);
+			expect(result).toEqual(["new_form"]);
 		});
 	});
 });

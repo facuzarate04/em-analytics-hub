@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PortableReportingBackend } from "../backends/portable/reporting.js";
-import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport, getCustomEventsReport } from "../reporting/service.js";
+import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport, getCustomEventsReport, getDetectedFormsReport } from "../reporting/service.js";
 import type { ReportingStorage } from "../reporting/types.js";
 import type { DailyStats } from "../types.js";
 import { normalizeDailyStats } from "../helpers/aggregation.js";
@@ -374,13 +374,69 @@ describe("PortableReportingBackend", () => {
 			expect(result.trends["click"]).toHaveLength(2);
 		});
 	});
+
+	describe("getDetectedForms", () => {
+		it("returns empty for no data", async () => {
+			const storage = makeStorage([], []);
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+			expect(result).toEqual([]);
+		});
+
+		it("detects form_submit events with props.form", async () => {
+			const events = [
+				{ name: "form_submit", pathname: "/contact", props: { form: "newsletter" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "form_submit", pathname: "/signup", props: { form: "signup" }, visitorId: "v2", createdAt: "2026-04-01T13:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+			expect(result).toContain("newsletter");
+			expect(result).toContain("signup");
+		});
+
+		it("detects *_submit events with props.source", async () => {
+			const events = [
+				{ name: "newsletter_submit", pathname: "/page", props: { source: "sidebar" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+			expect(result).toEqual(["sidebar"]);
+		});
+
+		it("falls back to pathname when form/source props missing", async () => {
+			const events = [
+				{ name: "form_submit", pathname: "/contact", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+			expect(result).toEqual(["/contact"]);
+		});
+
+		it("ignores non-submit events", async () => {
+			const events = [
+				{ name: "click", pathname: "/page", props: { form: "test" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+			expect(result).toEqual([]);
+		});
+
+		it("deduplicates form names", async () => {
+			const events = [
+				{ name: "form_submit", pathname: "/p", props: { form: "newsletter" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "form_submit", pathname: "/p", props: { form: "newsletter" }, visitorId: "v2", createdAt: "2026-04-01T13:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+			expect(result).toEqual(["newsletter"]);
+		});
+	});
 });
 
 // ─── Reporting service ─────────────────────────────────────────────────────
 
 describe("reporting service", () => {
 	it("getStatsReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn().mockResolvedValue({ views: 42 }), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn() };
+		const mockBackend = { getStats: vi.fn().mockResolvedValue({ views: 42 }), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getStatsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07" }, storage);
 
@@ -389,7 +445,7 @@ describe("reporting service", () => {
 	});
 
 	it("getTopPagesReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn().mockResolvedValue([]), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn() };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn().mockResolvedValue([]), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getTopPagesReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
 
@@ -398,7 +454,7 @@ describe("reporting service", () => {
 	});
 
 	it("getReferrersReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn().mockResolvedValue([]), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn() };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn().mockResolvedValue([]), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getReferrersReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 20 }, storage);
 
@@ -407,7 +463,7 @@ describe("reporting service", () => {
 	});
 
 	it("getCampaignsReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn().mockResolvedValue({ sources: [], mediums: [], campaigns: [] }), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn() };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn().mockResolvedValue({ sources: [], mediums: [], campaigns: [] }), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getCampaignsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07" }, storage);
 
@@ -416,7 +472,7 @@ describe("reporting service", () => {
 	});
 
 	it("getCampaignIntelligenceReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn().mockResolvedValue([]), getCustomEvents: vi.fn() };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn().mockResolvedValue([]), getCustomEvents: vi.fn(), getDetectedForms: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getCampaignIntelligenceReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", dimension: "source" }, storage);
 
@@ -425,11 +481,20 @@ describe("reporting service", () => {
 	});
 
 	it("getCustomEventsReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn().mockResolvedValue({ events: [], trends: {} }) };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn().mockResolvedValue({ events: [], trends: {} }), getDetectedForms: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getCustomEventsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
 
 		expect(mockBackend.getCustomEvents).toHaveBeenCalled();
 		expect(result).toEqual({ events: [], trends: {} });
+	});
+
+	it("getDetectedFormsReport delegates to backend", async () => {
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn().mockResolvedValue(["newsletter", "contact"]) };
+		const storage = makeStorage([]);
+		const result = await getDetectedFormsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+
+		expect(mockBackend.getDetectedForms).toHaveBeenCalled();
+		expect(result).toEqual(["newsletter", "contact"]);
 	});
 });

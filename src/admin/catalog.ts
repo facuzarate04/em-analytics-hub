@@ -4,18 +4,17 @@
 
 import type { PluginContext } from "emdash";
 import type { CustomEvent, DetectionCatalog } from "../types.js";
-import type { StorageCollection } from "../storage/queries.js";
 import { dateNDaysAgo, today } from "../helpers/date.js";
-import { queryCustomEvents } from "../storage/custom-events.js";
 import { buildDetectionCatalog } from "./config.js";
-import { getTopPagesReport, getCustomEventsReport } from "../reporting/service.js";
+import { getTopPagesReport, getCustomEventsReport, getDetectedFormsReport } from "../reporting/service.js";
 import { reportingBackend, reportingStorage } from "../reporting/backend.js";
 
 /**
  * Extracts form names from raw custom event items.
  *
- * LEGACY: Requires raw event props (form, source) which are only available
- * from portable storage. Cannot be served from D1 until a props table exists.
+ * Kept as a public helper for any caller that already has raw items.
+ * The reporting backend now has getDetectedForms which handles this
+ * at the storage/D1 level, so catalog no longer calls this directly.
  */
 export function extractForms(
 	items: Array<{ id: string; data: CustomEvent }>,
@@ -33,7 +32,10 @@ export function extractForms(
 
 /**
  * Extracts unique event names from raw custom event items.
- * Used only by portable mode — CF mode uses getCustomEventsReport instead.
+ *
+ * Kept as a public helper for any caller that already has raw items.
+ * The reporting backend now has getCustomEvents which handles this
+ * at the storage/D1 level, so catalog no longer calls this directly.
  */
 export function extractEventNames(
 	items: Array<{ id: string; data: CustomEvent }>,
@@ -51,10 +53,12 @@ export function extractEventNames(
 /**
  * Builds a detection catalog for goal/funnel configuration pages.
  *
- * - Pages: reporting backend (D1 in CF mode, portable otherwise)
- * - Event names: reporting backend via getCustomEvents (D1 in CF mode)
- * - Forms: LEGACY — reads from portable storage directly because form
- *   detection requires raw event props (form, source) not stored in D1.
+ * All three dimensions now use the reporting backend:
+ * - Pages: getTopPages (D1 in CF mode, daily_stats in portable)
+ * - Event names: getCustomEvents (D1 in CF mode, custom_events in portable)
+ * - Forms: getDetectedForms (D1 in CF mode, custom_events in portable)
+ *
+ * In Cloudflare mode, this function no longer reads from portable storage.
  */
 export async function buildCatalogFromStorage(ctx: PluginContext): Promise<DetectionCatalog> {
 	const dateFrom = dateNDaysAgo(30);
@@ -62,16 +66,15 @@ export async function buildCatalogFromStorage(ctx: PluginContext): Promise<Detec
 	const backend = reportingBackend();
 	const storage = reportingStorage(ctx);
 
-	const [topPages, customEventsReport, formEvents] = await Promise.all([
+	const [topPages, customEventsReport, forms] = await Promise.all([
 		getTopPagesReport(backend, { dateFrom, dateTo, limit: 50 }, storage),
 		getCustomEventsReport(backend, { dateFrom, dateTo, limit: 50 }, storage),
-		// LEGACY: portable read for form detection (needs raw props)
-		queryCustomEvents(ctx.storage.custom_events as StorageCollection<CustomEvent>, dateFrom, dateTo),
+		getDetectedFormsReport(backend, { dateFrom, dateTo, limit: 50 }, storage),
 	]);
 
 	return buildDetectionCatalog({
 		pages: topPages.map((p) => p.pathname),
-		forms: extractForms(formEvents),
+		forms,
 		events: customEventsReport.events.map((e) => e.name),
 	});
 }

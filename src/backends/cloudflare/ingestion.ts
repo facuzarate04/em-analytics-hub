@@ -71,6 +71,40 @@ export function serializeEvent(event: NormalizedEvent): AnalyticsEngineDataPoint
 }
 
 // ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+function parseEventProps(raw: string): Record<string, string | number | boolean> {
+	if (!raw) return {};
+	try {
+		const parsed = JSON.parse(raw);
+		if (typeof parsed === "object" && parsed !== null) {
+			const entries = Object.entries(parsed).slice(0, MAX_CUSTOM_EVENT_PROPS);
+			return Object.fromEntries(entries) as Record<string, string | number | boolean>;
+		}
+	} catch {
+		// invalid JSON
+	}
+	return {};
+}
+
+/**
+ * Extracts a form name from a custom event if it's a form submission.
+ * Matches the same logic as catalog.extractForms:
+ * - Event name must be "form_submit" or end with "_submit"
+ * - Form name comes from props.form, props.source, or pathname fallback
+ * Returns null if the event is not a form submission.
+ */
+function extractFormName(event: NormalizedEvent): string | null {
+	const name = event.eventName;
+	if (name !== "form_submit" && !name.endsWith("_submit")) return null;
+
+	const props = parseEventProps(event.eventProps);
+	const formName = String(props.form ?? props.source ?? event.pathname ?? "");
+	return formName.length > 0 ? formName : null;
+}
+
+// ---------------------------------------------------------------------------
 // D1 write helpers — build batched statements for each event type
 // ---------------------------------------------------------------------------
 
@@ -211,6 +245,17 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 						 ON CONFLICT (date, event_name) DO UPDATE SET count = count + 1`,
 					).bind(date, event.eventName.slice(0, MAX_EVENT_NAME_LENGTH), 1),
 				);
+
+				// Form submission detection for catalog discovery
+				const formName = extractFormName(event);
+				if (formName) {
+					stmts.push(
+						db.prepare(
+							`INSERT INTO daily_form_submissions (date, form_name, count) VALUES (?, ?, ?)
+							 ON CONFLICT (date, form_name) DO UPDATE SET count = count + 1`,
+						).bind(date, formName, 1),
+					);
+				}
 			}
 			break;
 		}
@@ -222,20 +267,6 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 // ---------------------------------------------------------------------------
 // Portable legacy writer — events + custom_events only (no daily_stats)
 // ---------------------------------------------------------------------------
-
-function parseEventProps(raw: string): Record<string, string | number | boolean> {
-	if (!raw) return {};
-	try {
-		const parsed = JSON.parse(raw);
-		if (typeof parsed === "object" && parsed !== null) {
-			const entries = Object.entries(parsed).slice(0, MAX_CUSTOM_EVENT_PROPS);
-			return Object.fromEntries(entries) as Record<string, string | number | boolean>;
-		}
-	} catch {
-		// invalid JSON
-	}
-	return {};
-}
 
 /**
  * Writes only raw events and custom events to portable storage.
