@@ -1,13 +1,30 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { resolveRuntime, resetRuntime, getRuntime } from "../runtime/resolver.js";
+import { CF_BINDING_ANALYTICS_ENGINE, CF_BINDING_D1 } from "../runtime/env.js";
+
+function simulateCfWorkers() {
+	(globalThis as any).caches = { default: {} };
+}
+
+function simulateBinding(name: string, value: unknown = {}) {
+	(globalThis as any)[name] = value;
+}
+
+function cleanGlobals() {
+	delete (globalThis as any).caches;
+	delete (globalThis as any)[CF_BINDING_ANALYTICS_ENGINE];
+	delete (globalThis as any)[CF_BINDING_D1];
+}
 
 describe("resolveRuntime", () => {
 	beforeEach(() => {
 		resetRuntime();
+		cleanGlobals();
 	});
 
 	afterEach(() => {
 		resetRuntime();
+		cleanGlobals();
 		delete process.env.ANALYTICS_HUB_RUNTIME;
 	});
 
@@ -28,10 +45,41 @@ describe("resolveRuntime", () => {
 		expect(runtime.id).toBe("portable");
 	});
 
-	it("throws when cloudflare is forced but environment is not CF", () => {
+	it("throws when cloudflare forced but not CF environment", () => {
 		expect(() => resolveRuntime("cloudflare")).toThrow(
 			"Cloudflare Workers environment not detected",
 		);
+	});
+
+	it("throws with missing bindings when cloudflare forced on CF without bindings", () => {
+		simulateCfWorkers();
+		expect(() => resolveRuntime("cloudflare")).toThrow(
+			`requires bindings: ${CF_BINDING_ANALYTICS_ENGINE}, ${CF_BINDING_D1}`,
+		);
+	});
+
+	it("returns cloudflare runtime when forced with all bindings present", () => {
+		simulateCfWorkers();
+		simulateBinding(CF_BINDING_ANALYTICS_ENGINE, { writeDataPoint: () => {} });
+		simulateBinding(CF_BINDING_D1, { prepare: () => {} });
+		const runtime = resolveRuntime("cloudflare");
+		expect(runtime.id).toBe("cloudflare");
+		expect(runtime.ingestion).toBeDefined();
+		expect(runtime.reporting).toBeDefined();
+	});
+
+	it("falls back to portable on auto when CF detected but bindings missing", () => {
+		simulateCfWorkers();
+		const runtime = resolveRuntime("auto");
+		expect(runtime.id).toBe("portable");
+	});
+
+	it("returns cloudflare runtime on auto when CF ready", () => {
+		simulateCfWorkers();
+		simulateBinding(CF_BINDING_ANALYTICS_ENGINE, { writeDataPoint: () => {} });
+		simulateBinding(CF_BINDING_D1, { prepare: () => {} });
+		const runtime = resolveRuntime("auto");
+		expect(runtime.id).toBe("cloudflare");
 	});
 
 	it("reads ANALYTICS_HUB_RUNTIME=portable from env", () => {
@@ -69,10 +117,12 @@ describe("resolveRuntime", () => {
 describe("getRuntime", () => {
 	beforeEach(() => {
 		resetRuntime();
+		cleanGlobals();
 	});
 
 	afterEach(() => {
 		resetRuntime();
+		cleanGlobals();
 	});
 
 	it("auto-resolves on first call", () => {
