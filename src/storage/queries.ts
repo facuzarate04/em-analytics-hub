@@ -9,7 +9,7 @@ export interface StorageCollection<T = unknown> {
 	get: (id: string) => Promise<T | undefined>;
 	put: (id: string, data: T) => Promise<void>;
 	query: (options: QueryOptions) => Promise<PaginatedResult<T>>;
-	deleteMany: (ids: string[]) => Promise<void>;
+	deleteMany: (ids: string[]) => Promise<void | number>;
 }
 
 export interface QueryOptions {
