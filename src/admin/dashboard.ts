@@ -265,6 +265,11 @@ export async function buildDashboard(
 	}
 
 	// ── Funnels v1 ───────────────────────────────────────────────
+	// LEGACY: This section reads raw events and custom events from portable
+	// storage directly. It cannot use the reporting backend because funnels,
+	// goals, and forms analytics need per-event granularity.
+	// These reads are why portable storage writes (events, custom_events)
+	// must be maintained in the triple-write for now.
 	if (isPro) {
 		try {
 			const rawEvents = await queryRawEvents(ctx.storage.events as StorageCollection<RawEvent>, dateFrom, dateTo);
@@ -421,6 +426,9 @@ export async function buildDashboard(
 	}
 
 	// ── Custom Events + Property Breakdowns ──────────────────────
+	// LEGACY: Reads custom_events from portable storage directly.
+	// Needs per-event granularity for counts, trends, and property breakdowns.
+	// A future custom events reporting method could eliminate this dependency.
 	try {
 		const customEventItems = await queryCustomEvents(ctx.storage.custom_events as StorageCollection<CustomEvent>, dateFrom, dateTo);
 		const eventCounts = aggregateCustomEvents(customEventItems);

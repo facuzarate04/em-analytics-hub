@@ -212,10 +212,18 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
  * Ingestion backend that writes to:
  * 1. Cloudflare Analytics Engine (raw event stream, source of truth)
  * 2. D1 (aggregated tables for real-time reporting)
- * 3. Portable storage (TEMPORARY — for admin UI that still reads ctx.storage)
+ * 3. Portable storage (TEMPORARY — partial, see below)
  *
- * The portable delegation will be removed once the admin dashboard is migrated
- * to use the reporting backend instead of reading storage directly.
+ * Portable write status:
+ * - daily_stats: NO LONGER READ in CF mode. Core dashboard, widget, routes,
+ *   and catalog all use the reporting backend (which reads from D1).
+ *   Kept only because PortableIngestionBackend writes all 3 atomically.
+ * - events: READ by Pro funnels section in dashboard (queryRawEvents).
+ * - custom_events: READ by Pro funnels, custom events section, and catalog
+ *   (queryCustomEvents for counts/trends/properties/forms).
+ *
+ * To fully remove the portable write, the remaining reads (events,
+ * custom_events) need their own reporting backend methods or D1 tables.
  */
 export class CloudflareIngestionBackend implements AnalyticsIngestionBackend {
 	private readonly dataset: AnalyticsEngineDataset;
