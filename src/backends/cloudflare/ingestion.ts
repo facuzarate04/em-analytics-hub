@@ -267,16 +267,38 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 // ---------------------------------------------------------------------------
 // Portable legacy writer — events + custom_events only (no daily_stats)
 // ---------------------------------------------------------------------------
+//
+// Remaining portable reads in CF mode (all Pro-gated):
+//
+// events:
+//   - dashboard funnels section (queryRawEvents, gated by isPro)
+//
+// custom_events:
+//   - dashboard property breakdowns (canViewEventProperties, Pro)
+//   - dashboard goals aggregation  (canViewGoals, Pro)
+//   - dashboard forms analytics    (canViewFormsAnalytics, Pro)
+//
+// NOT read by (already migrated to D1/reporting backend):
+//   - core dashboard stats, top pages, referrers, campaigns
+//   - custom events listing + trends
+//   - catalog (pages, event names, forms)
+//
+// Making writes conditional on license is not viable because:
+//   - handleTrack() has no license info (adding KV read adds latency)
+//   - license can change between write time and read time
+//   - ingestion should remain plan-agnostic
+//
+// To fully eliminate these writes, migrate funnels/goals/forms-analytics/
+// property-breakdowns to D1 or AE. Each is an independent future slice.
+// ---------------------------------------------------------------------------
 
 /**
- * Writes only raw events and custom events to portable storage.
- * Skips daily_stats entirely — D1 handles aggregated reporting in CF mode.
+ * Writes raw events and custom events to portable storage.
+ * Skips daily_stats — D1 handles aggregated reporting in CF mode.
  *
- * These writes are still needed because:
- * - events: read by Pro funnels section (queryRawEvents)
- * - custom_events: read by Pro funnels, Custom Events section, and catalog
- *
- * Once those sections migrate to D1 or AE, this writer can be removed.
+ * These writes serve exclusively Pro features (funnels, goals,
+ * forms analytics, property breakdowns). They cannot be conditioned
+ * on license at ingestion time without coupling ingestion to licensing.
  */
 async function writePortableLegacy(event: NormalizedEvent, storage: IngestionStorage): Promise<void> {
 	await writeEvent(storage.events, event);
@@ -300,9 +322,11 @@ async function writePortableLegacy(event: NormalizedEvent, storage: IngestionSto
  * Ingestion backend that writes to:
  * 1. Cloudflare Analytics Engine (raw event stream, source of truth)
  * 2. D1 (aggregated tables for real-time reporting)
- * 3. Portable storage — events + custom_events only (for legacy Pro sections)
+ * 3. Portable storage — events + custom_events only (Pro feature reads)
  *
  * Does NOT write to portable daily_stats. Core reporting reads from D1.
+ * Portable writes cannot be removed until Pro sections (funnels, goals,
+ * forms analytics, property breakdowns) are migrated to D1/AE.
  */
 export class CloudflareIngestionBackend implements AnalyticsIngestionBackend {
 	private readonly dataset: AnalyticsEngineDataset;

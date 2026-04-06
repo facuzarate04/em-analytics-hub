@@ -264,11 +264,18 @@ export async function buildDashboard(
 	}
 
 	// ── Funnels v1 ───────────────────────────────────────────────
-	// LEGACY: This section reads raw events and custom events from portable
-	// storage directly. It cannot use the reporting backend because funnels,
-	// goals, and forms analytics need per-event granularity.
-	// These reads are why portable storage writes (events, custom_events)
-	// must be maintained in the triple-write for now.
+	// LEGACY PORTABLE READS (Pro only):
+	// This section reads raw events and custom events from portable storage.
+	// It cannot use the reporting backend because funnels, goals, and forms
+	// analytics need per-event granularity with raw props.
+	//
+	// Reads:
+	//   events        → funnels (queryRawEvents for step detection)
+	//   custom_events → goals (aggregateGoals/aggregateConfiguredGoals)
+	//                 → forms analytics (aggregateFormsAnalytics)
+	//
+	// These reads are the sole reason portable events/custom_events writes
+	// are maintained in CF ingestion. Migrate each to D1/AE to eliminate.
 	if (isPro) {
 		try {
 			const rawEvents = await queryRawEvents(ctx.storage.events as StorageCollection<RawEvent>, dateFrom, dateTo);
@@ -425,9 +432,9 @@ export async function buildDashboard(
 	}
 
 	// ── Custom Events + Property Breakdowns ──────────────────────
-	// Counts and trends: served by the reporting backend (D1 in CF mode, portable otherwise).
-	// Property breakdowns (Pro): LEGACY — still reads from portable storage directly
-	// because it needs per-event raw props. Migrate once D1 has a props table.
+	// Counts and trends: reporting backend (D1 in CF mode). ✓ MIGRATED
+	// Property breakdowns (Pro): LEGACY PORTABLE READ — needs per-event
+	// raw props from custom_events storage. Migrate once D1 has a props table.
 	try {
 		const customEventsReport = await getCustomEventsReport(backend, { dateFrom, dateTo, limit: 8 }, storage);
 		const eventEntries = customEventsReport.events;
