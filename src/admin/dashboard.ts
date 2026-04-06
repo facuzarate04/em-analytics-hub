@@ -3,7 +3,8 @@
 // ---------------------------------------------------------------------------
 
 import type { PluginContext } from "emdash";
-import type { LicenseCache } from "../types.js";
+import type { LicenseCache, RawEvent, CustomEvent } from "../types.js";
+import type { StorageCollection } from "../storage/queries.js";
 import { dateNDaysAgo, today } from "../helpers/date.js";
 import { formatNumber, formatDuration, calculateTrend } from "../helpers/format.js";
 import {
@@ -43,7 +44,6 @@ import {
 } from "./components.js";
 import { getStatsReport, getTopPagesReport, getCampaignIntelligenceReport } from "../reporting/service.js";
 import { reportingBackend, reportingStorage } from "../reporting/backend.js";
-import type { StatsReport, TopPageEntry } from "../reporting/types.js";
 
 const EVENT_TREND_COLORS = ["#8B5CF6", "#EC4899", "#F59E0B", "#14B8A6", "#6366F1"];
 
@@ -267,8 +267,8 @@ export async function buildDashboard(
 	// ── Funnels v1 ───────────────────────────────────────────────
 	if (isPro) {
 		try {
-			const rawEvents = await queryRawEvents(ctx.storage.events as any, dateFrom, dateTo);
-			const customEventItems = await queryCustomEvents(ctx.storage.custom_events as any, dateFrom, dateTo);
+			const rawEvents = await queryRawEvents(ctx.storage.events as StorageCollection<RawEvent>, dateFrom, dateTo);
+			const customEventItems = await queryCustomEvents(ctx.storage.custom_events as StorageCollection<CustomEvent>, dateFrom, dateTo);
 			const configuredFunnels = (await loadFunnelDefinitions(ctx)).filter((item) => item.active);
 			const configuredGoals = (await loadGoalDefinitions(ctx)).filter((item) => item.active);
 			const funnelSets = configuredFunnels.length > 0
@@ -422,7 +422,7 @@ export async function buildDashboard(
 
 	// ── Custom Events + Property Breakdowns ──────────────────────
 	try {
-		const customEventItems = await queryCustomEvents(ctx.storage.custom_events as any, dateFrom, dateTo);
+		const customEventItems = await queryCustomEvents(ctx.storage.custom_events as StorageCollection<CustomEvent>, dateFrom, dateTo);
 		const eventCounts = aggregateCustomEvents(customEventItems);
 		const eventEntries = Object.entries(eventCounts).sort(([, a], [, b]) => b - a).slice(0, 8);
 
