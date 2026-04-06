@@ -2,6 +2,7 @@
 // POST /track — Public beacon endpoint
 // ---------------------------------------------------------------------------
 
+import { randomUUID } from "node:crypto";
 import type { PluginContext } from "emdash";
 import type { TrackPayload } from "../types.js";
 import { KV_KEYS } from "../constants.js";
@@ -24,7 +25,7 @@ export async function handleTrack(
 
 	let salt = await ctx.kv.get<string>(KV_KEYS.DAILY_SALT);
 	if (!salt) {
-		salt = crypto.randomUUID();
+		salt = randomUUID();
 		await ctx.kv.set(KV_KEYS.DAILY_SALT, salt);
 	}
 
