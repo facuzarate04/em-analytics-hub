@@ -4,7 +4,9 @@ import { probeCloudflareEnv, requireCloudflareEnv } from "./env.js";
 import { PortableIngestionBackend } from "../backends/portable/ingestion.js";
 import { PortableReportingBackend } from "../backends/portable/reporting.js";
 import { CloudflareIngestionBackend } from "../backends/cloudflare/ingestion.js";
+import { CloudflareReportingBackend } from "../backends/cloudflare/reporting.js";
 import type { AnalyticsEngineDataset } from "../backends/cloudflare/ingestion.js";
+import type { D1Database } from "../backends/cloudflare/d1.js";
 
 let _resolved: AnalyticsRuntime | null = null;
 
@@ -28,13 +30,16 @@ function buildPortableRuntime(): AnalyticsRuntime {
 
 function buildCloudflareRuntime(bindings: CloudflareBindings): AnalyticsRuntime {
 	const dataset = bindings.analyticsEngine as AnalyticsEngineDataset;
+	const d1 = bindings.d1 as D1Database;
 	const portableIngestion = new PortableIngestionBackend();
 	return {
 		id: "cloudflare",
-		// Dual-write: AE + portable storage (temporary until D1 reporting in Slice 4)
-		ingestion: new CloudflareIngestionBackend(dataset, portableIngestion),
-		// D1 reporting not yet implemented — use portable reporting for now
-		reporting: new PortableReportingBackend(),
+		// Triple-write: AE + D1 + portable storage
+		// Portable delegation is temporary — admin UI still reads ctx.storage directly.
+		// Once admin dashboard migrates to reporting backend, portable can be removed.
+		ingestion: new CloudflareIngestionBackend(dataset, d1, portableIngestion),
+		// D1-backed reporting — reads from tables populated by ingestion above
+		reporting: new CloudflareReportingBackend(d1),
 	};
 }
 

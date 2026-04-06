@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { resolveRuntime, resetRuntime, getRuntime } from "../runtime/resolver.js";
 import { CF_BINDING_ANALYTICS_ENGINE, CF_BINDING_D1 } from "../runtime/env.js";
+import { CloudflareIngestionBackend } from "../backends/cloudflare/ingestion.js";
+import { CloudflareReportingBackend } from "../backends/cloudflare/reporting.js";
+import { PortableIngestionBackend } from "../backends/portable/ingestion.js";
+import { PortableReportingBackend } from "../backends/portable/reporting.js";
 
 function simulateCfWorkers() {
 	(globalThis as any).caches = { default: {} };
@@ -66,6 +70,21 @@ describe("resolveRuntime", () => {
 		expect(runtime.id).toBe("cloudflare");
 		expect(runtime.ingestion).toBeDefined();
 		expect(runtime.reporting).toBeDefined();
+	});
+
+	it("uses CloudflareIngestionBackend and CloudflareReportingBackend in cloudflare mode", () => {
+		simulateCfWorkers();
+		simulateBinding(CF_BINDING_ANALYTICS_ENGINE, { writeDataPoint: () => {} });
+		simulateBinding(CF_BINDING_D1, { prepare: () => {} });
+		const runtime = resolveRuntime("cloudflare");
+		expect(runtime.ingestion).toBeInstanceOf(CloudflareIngestionBackend);
+		expect(runtime.reporting).toBeInstanceOf(CloudflareReportingBackend);
+	});
+
+	it("uses PortableIngestionBackend and PortableReportingBackend in portable mode", () => {
+		const runtime = resolveRuntime("portable");
+		expect(runtime.ingestion).toBeInstanceOf(PortableIngestionBackend);
+		expect(runtime.reporting).toBeInstanceOf(PortableReportingBackend);
 	});
 
 	it("falls back to portable on auto when CF detected but bindings missing", () => {
