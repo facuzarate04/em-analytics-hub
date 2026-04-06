@@ -17,7 +17,9 @@ import type {
 	PropertyBreakdownsQuery,
 	PropertyBreakdownsReport,
 	GoalsQuery,
+	FormsAnalyticsQuery,
 } from "../../reporting/types.js";
+import type { FormAnalyticsRow } from "../../helpers/forms-analytics.js";
 import type { CustomEvent, GoalMetricRow } from "../../types.js";
 import type { StorageCollection } from "../../storage/queries.js";
 import { queryStatsForRange } from "../../storage/stats.js";
@@ -25,6 +27,7 @@ import { aggregateStats } from "../../helpers/aggregation.js";
 import { aggregateCampaignIntelligence } from "../../helpers/campaign-intelligence.js";
 import { queryCustomEvents, aggregateCustomEvents, aggregateCustomEventTrends, aggregateCustomEventProperties } from "../../storage/custom-events.js";
 import { aggregateGoals, isAutoGoalCandidate } from "../../helpers/goals.js";
+import { aggregateFormsAnalytics } from "../../helpers/forms-analytics.js";
 
 function pct(part: number, total: number): number {
 	return total > 0 ? Math.round((part / total) * 100) : 0;
@@ -252,5 +255,15 @@ export class PortableReportingBackend implements AnalyticsReportingBackend {
 		return rows
 			.filter((row) => row.completions > 0)
 			.sort((a, b) => b.completions - a.completions);
+	}
+
+	async getFormsAnalytics(query: FormsAnalyticsQuery, storage: ReportingStorage): Promise<FormAnalyticsRow[]> {
+		const items = await queryCustomEvents(
+			storage.custom_events as StorageCollection<CustomEvent>,
+			query.dateFrom,
+			query.dateTo,
+		);
+
+		return aggregateFormsAnalytics(items, query.totalVisitors);
 	}
 }

@@ -25,6 +25,8 @@ async function seedData(db: ReturnType<typeof createMockD1>, data: {
 	eventProps?: Array<{ date: string; event_name: string; prop_key: string; prop_value: string; count: number }>;
 	eventVisitors?: Array<{ date: string; event_name: string; visitor_id: string }>;
 	formVisitors?: Array<{ date: string; form_name: string; visitor_id: string }>;
+	formAnalytics?: Array<{ date: string; event_name: string; form_name: string; count: number }>;
+	formAnalyticsVisitors?: Array<{ date: string; event_name: string; form_name: string; visitor_id: string }>;
 }) {
 	for (const p of data.pages ?? []) {
 		await db.prepare(
@@ -81,6 +83,17 @@ async function seedData(db: ReturnType<typeof createMockD1>, data: {
 		await db.prepare(
 			`INSERT OR IGNORE INTO daily_form_visitors (date, form_name, visitor_id) VALUES (?, ?, ?)`,
 		).bind(fv.date, fv.form_name, fv.visitor_id).run();
+	}
+	for (const fa of data.formAnalytics ?? []) {
+		await db.prepare(
+			`INSERT INTO daily_form_analytics (date, event_name, form_name, count) VALUES (?, ?, ?, ?)
+			 ON CONFLICT (date, event_name, form_name) DO UPDATE SET count = count + 1`,
+		).bind(fa.date, fa.event_name, fa.form_name, fa.count).run();
+	}
+	for (const fav of data.formAnalyticsVisitors ?? []) {
+		await db.prepare(
+			`INSERT OR IGNORE INTO daily_form_analytics_visitors (date, event_name, form_name, visitor_id) VALUES (?, ?, ?, ?)`,
+		).bind(fav.date, fav.event_name, fav.form_name, fav.visitor_id).run();
 	}
 }
 
@@ -962,6 +975,111 @@ describe("CloudflareReportingBackend", () => {
 				expect(result[1].goal).toBe("Thanks Page");
 				expect(result[2].goal).toBe("Purchase");
 			});
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// getFormsAnalytics
+	// -----------------------------------------------------------------------
+
+	describe("getFormsAnalytics", () => {
+		it("returns empty for no data", async () => {
+			const result = await backend.getFormsAnalytics(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100 },
+				dummyStorage,
+			);
+			expect(result).toEqual([]);
+		});
+
+		it("returns form analytics rows with submissions and visitors", async () => {
+			await seedData(db, {
+				formAnalytics: [
+					{ date: "2026-04-01", event_name: "form_submit", form_name: "newsletter", count: 10 },
+					{ date: "2026-04-01", event_name: "form_submit", form_name: "contact", count: 5 },
+				],
+				formAnalyticsVisitors: [
+					{ date: "2026-04-01", event_name: "form_submit", form_name: "newsletter", visitor_id: "v1" },
+					{ date: "2026-04-01", event_name: "form_submit", form_name: "newsletter", visitor_id: "v2" },
+					{ date: "2026-04-01", event_name: "form_submit", form_name: "newsletter", visitor_id: "v3" },
+					{ date: "2026-04-01", event_name: "form_submit", form_name: "contact", visitor_id: "v1" },
+				],
+			});
+			const result = await backend.getFormsAnalytics(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100 },
+				dummyStorage,
+			);
+			expect(result.length).toBe(2);
+			// Sorted by submissions desc
+			expect(result[0].form).toBe("newsletter");
+			expect(result[0].event).toBe("form_submit");
+			expect(result[0].submissions).toBe(10);
+			expect(result[0].visitors).toBe(3);
+			expect(result[0].submitRate).toBe(3);
+			expect(result[1].form).toBe("contact");
+			expect(result[1].submissions).toBe(5);
+			expect(result[1].visitors).toBe(1);
+		});
+
+		it("distinguishes same form across different event names", async () => {
+			await seedData(db, {
+				formAnalytics: [
+					{ date: "2026-04-01", event_name: "form_submit", form_name: "newsletter", count: 5 },
+					{ date: "2026-04-01", event_name: "newsletter_submit", form_name: "sidebar", count: 3 },
+				],
+			});
+			const result = await backend.getFormsAnalytics(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 50 },
+				dummyStorage,
+			);
+			expect(result.length).toBe(2);
+			expect(result[0].event).toBe("form_submit");
+			expect(result[1].event).toBe("newsletter_submit");
+		});
+
+		it("aggregates across dates", async () => {
+			await seedData(db, {
+				formAnalytics: [
+					{ date: "2026-04-01", event_name: "form_submit", form_name: "contact", count: 3 },
+					{ date: "2026-04-02", event_name: "form_submit", form_name: "contact", count: 7 },
+				],
+			});
+			const result = await backend.getFormsAnalytics(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100 },
+				dummyStorage,
+			);
+			expect(result.length).toBe(1);
+			expect(result[0].submissions).toBe(10);
+		});
+
+		it("respects limit parameter", async () => {
+			await seedData(db, {
+				formAnalytics: Array.from({ length: 10 }, (_, i) => ({
+					date: "2026-04-01",
+					event_name: "form_submit",
+					form_name: `form_${i}`,
+					count: 10 - i,
+				})),
+			});
+			const result = await backend.getFormsAnalytics(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100, limit: 3 },
+				dummyStorage,
+			);
+			expect(result.length).toBe(3);
+		});
+
+		it("filters by date range", async () => {
+			await seedData(db, {
+				formAnalytics: [
+					{ date: "2026-03-31", event_name: "form_submit", form_name: "old_form", count: 100 },
+					{ date: "2026-04-01", event_name: "form_submit", form_name: "new_form", count: 1 },
+				],
+			});
+			const result = await backend.getFormsAnalytics(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 50 },
+				dummyStorage,
+			);
+			expect(result.length).toBe(1);
+			expect(result[0].form).toBe("new_form");
 		});
 	});
 });

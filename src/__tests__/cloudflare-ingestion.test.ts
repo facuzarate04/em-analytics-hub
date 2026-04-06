@@ -467,6 +467,62 @@ describe("CloudflareIngestionBackend", () => {
 	});
 
 	// -----------------------------------------------------------------------
+	// D1: form analytics → daily_form_analytics + daily_form_analytics_visitors
+	// -----------------------------------------------------------------------
+
+	it("writes form submission to D1 daily_form_analytics with event_name", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({
+			type: "custom",
+			eventName: "form_submit",
+			eventProps: '{"form":"newsletter"}',
+			visitorId: "v-abc",
+		}), storage);
+
+		const table = d1._tables.get("daily_form_analytics");
+		expect(table).toBeDefined();
+		expect(table!.rows.length).toBe(1);
+		expect(table!.rows[0].event_name).toBe("form_submit");
+		expect(table!.rows[0].form_name).toBe("newsletter");
+		expect(table!.rows[0].count).toBe(1);
+	});
+
+	it("writes form analytics visitor to D1 daily_form_analytics_visitors", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({
+			type: "custom",
+			eventName: "newsletter_submit",
+			eventProps: '{"source":"sidebar"}',
+			visitorId: "v-xyz",
+		}), storage);
+
+		const table = d1._tables.get("daily_form_analytics_visitors");
+		expect(table).toBeDefined();
+		expect(table!.rows.length).toBe(1);
+		expect(table!.rows[0].event_name).toBe("newsletter_submit");
+		expect(table!.rows[0].form_name).toBe("sidebar");
+		expect(table!.rows[0].visitor_id).toBe("v-xyz");
+	});
+
+	it("aggregates form analytics counts per event_name+form_name", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "custom", eventName: "form_submit", eventProps: '{"form":"newsletter"}' }), storage);
+		await backend.ingest(makeEvent({ type: "custom", eventName: "form_submit", eventProps: '{"form":"newsletter"}' }), storage);
+		await backend.ingest(makeEvent({ type: "custom", eventName: "form_submit", eventProps: '{"form":"contact"}' }), storage);
+
+		const table = d1._tables.get("daily_form_analytics");
+		expect(table!.rows.length).toBe(2);
+		const newsletter = table!.rows.find((r) => r.form_name === "newsletter");
+		expect(newsletter?.count).toBe(2);
+	});
+
+	// -----------------------------------------------------------------------
 	// D1: custom event props → daily_custom_event_props table
 	// -----------------------------------------------------------------------
 
@@ -539,7 +595,7 @@ describe("CloudflareIngestionBackend", () => {
 		expect(storage.events.put).toHaveBeenCalledOnce();
 	});
 
-	it("writes to portable custom_events for custom event type", async () => {
+	it("does NOT write to portable custom_events (migrated to D1)", async () => {
 		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
 		const storage = createMockStorage();
 
@@ -550,15 +606,6 @@ describe("CloudflareIngestionBackend", () => {
 		}), storage);
 
 		expect(storage.events.put).toHaveBeenCalledOnce();
-		expect(storage.custom_events.put).toHaveBeenCalledOnce();
-	});
-
-	it("does NOT write to portable custom_events for non-custom events", async () => {
-		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
-		const storage = createMockStorage();
-
-		await backend.ingest(makeEvent({ type: "pageview" }), storage);
-
 		expect(storage.custom_events.put).not.toHaveBeenCalled();
 	});
 

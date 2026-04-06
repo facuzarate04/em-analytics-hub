@@ -5,7 +5,6 @@ import { ensureD1Schema } from "./d1.js";
 import { today } from "../../helpers/date.js";
 import { MAX_EVENT_NAME_LENGTH, MAX_CUSTOM_EVENT_PROPS } from "../../constants.js";
 import { writeEvent } from "../../storage/events.js";
-import { writeCustomEvent } from "../../storage/custom-events.js";
 
 /**
  * Minimal typed interface for the Cloudflare Analytics Engine dataset binding.
@@ -276,22 +275,36 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 					}
 				}
 
-				// Form submission detection for catalog discovery
+				// Form submission detection for catalog, goals, and forms analytics
 				const formName = extractFormName(event);
 				if (formName) {
+					// Catalog + goals tables (keyed by form_name only)
 					stmts.push(
 						db.prepare(
 							`INSERT INTO daily_form_submissions (date, form_name, count) VALUES (?, ?, ?)
 							 ON CONFLICT (date, form_name) DO UPDATE SET count = count + 1`,
 						).bind(date, formName, 1),
 					);
-
-					// Unique visitor tracking per form (for goals)
 					if (event.visitorId) {
 						stmts.push(
 							db.prepare(
 								`INSERT OR IGNORE INTO daily_form_visitors (date, form_name, visitor_id) VALUES (?, ?, ?)`,
 							).bind(date, formName, event.visitorId),
+						);
+					}
+
+					// Forms analytics tables (keyed by event_name + form_name)
+					stmts.push(
+						db.prepare(
+							`INSERT INTO daily_form_analytics (date, event_name, form_name, count) VALUES (?, ?, ?, ?)
+							 ON CONFLICT (date, event_name, form_name) DO UPDATE SET count = count + 1`,
+						).bind(date, truncatedName, formName, 1),
+					);
+					if (event.visitorId) {
+						stmts.push(
+							db.prepare(
+								`INSERT OR IGNORE INTO daily_form_analytics_visitors (date, event_name, form_name, visitor_id) VALUES (?, ?, ?, ?)`,
+							).bind(date, truncatedName, formName, event.visitorId),
 						);
 					}
 				}
@@ -307,50 +320,36 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 // Portable legacy writer — events + custom_events only (no daily_stats)
 // ---------------------------------------------------------------------------
 //
-// Remaining portable reads in CF mode (all Pro-gated):
+// Remaining portable reads in CF mode:
 //
 // events:
 //   - dashboard funnels section (queryRawEvents, gated by isPro)
 //
 // custom_events:
-//   - dashboard forms analytics    (canViewFormsAnalytics, Pro)
+//   - NO remaining readers — all migrated to D1/reporting backend
+//   - custom_events write eliminated (see below)
 //
-// NOT read by (already migrated to D1/reporting backend):
+// Already migrated to D1/reporting backend:
 //   - core dashboard stats, top pages, referrers, campaigns
 //   - custom events listing + trends
 //   - catalog (pages, event names, forms)
 //   - property breakdowns
 //   - goals (all three types: page, event, form)
+//   - forms analytics
 //
-// Making writes conditional on license is not viable because:
-//   - handleTrack() has no license info (adding KV read adds latency)
-//   - license can change between write time and read time
-//   - ingestion should remain plan-agnostic
-//
-// To fully eliminate these writes, migrate funnels and forms-analytics
-// to D1 or AE. Each is an independent future slice.
+// To fully eliminate portable events writes, migrate funnels to D1/AE.
 // ---------------------------------------------------------------------------
 
 /**
- * Writes raw events and custom events to portable storage.
- * Skips daily_stats — D1 handles aggregated reporting in CF mode.
+ * Writes raw events to portable storage.
+ * Skips daily_stats and custom_events — D1 handles all reporting in CF mode.
  *
- * These writes serve exclusively Pro features (funnels, goals,
- * forms analytics, property breakdowns). They cannot be conditioned
- * on license at ingestion time without coupling ingestion to licensing.
+ * Only raw events are written for funnels (Pro feature). Once funnels are
+ * migrated to D1/AE, this function and the portable events write can be
+ * eliminated entirely.
  */
 async function writePortableLegacy(event: NormalizedEvent, storage: IngestionStorage): Promise<void> {
 	await writeEvent(storage.events, event);
-
-	if (event.type === "custom" && event.eventName) {
-		await writeCustomEvent(storage.custom_events, {
-			name: event.eventName.slice(0, MAX_EVENT_NAME_LENGTH),
-			pathname: event.pathname,
-			props: parseEventProps(event.eventProps),
-			visitorId: event.visitorId,
-			createdAt: event.createdAt,
-		});
-	}
 }
 
 // ---------------------------------------------------------------------------

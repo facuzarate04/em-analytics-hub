@@ -26,7 +26,9 @@ import type {
 	PropertyBreakdownsQuery,
 	PropertyBreakdownsReport,
 	GoalsQuery,
+	FormsAnalyticsQuery,
 } from "../../reporting/types.js";
+import type { FormAnalyticsRow } from "../../helpers/forms-analytics.js";
 import type { GoalMetricRow } from "../../types.js";
 import { isAutoGoalCandidate, prettifyGoalName } from "../../helpers/goals.js";
 import type { D1Database } from "./d1.js";
@@ -401,6 +403,46 @@ export class CloudflareReportingBackend implements AnalyticsReportingBackend {
 			return this.autoDetectGoals(dateFrom, dateTo, totalVisitors);
 		}
 		return this.computeConfiguredGoals(goals, dateFrom, dateTo, totalVisitors);
+	}
+
+	async getFormsAnalytics(query: FormsAnalyticsQuery, _storage: ReportingStorage): Promise<FormAnalyticsRow[]> {
+		await ensureD1Schema(this.db);
+		const { dateFrom, dateTo, totalVisitors, limit = 6 } = query;
+
+		// Get submissions grouped by (event_name, form_name)
+		const rows = await this.db.prepare(
+			`SELECT event_name, form_name, SUM(count) as submissions
+			 FROM daily_form_analytics
+			 WHERE date >= ? AND date <= ?
+			 GROUP BY event_name, form_name
+			 ORDER BY submissions DESC
+			 LIMIT ?`,
+		).bind(dateFrom, dateTo, limit).all<{ event_name: string; form_name: string; submissions: number }>();
+
+		const entries = rows.results ?? [];
+		if (entries.length === 0) return [];
+
+		// Get unique visitors per (event_name, form_name)
+		// Build IN clause for compound key matching
+		const result: FormAnalyticsRow[] = [];
+		for (const entry of entries) {
+			const visitorRow = await this.db.prepare(
+				`SELECT COUNT(DISTINCT visitor_id) as visitors
+				 FROM daily_form_analytics_visitors
+				 WHERE date >= ? AND date <= ? AND event_name = ? AND form_name = ?`,
+			).bind(dateFrom, dateTo, entry.event_name, entry.form_name).first<{ visitors: number }>();
+
+			const visitors = visitorRow?.visitors ?? 0;
+			result.push({
+				form: entry.form_name,
+				event: entry.event_name,
+				submissions: entry.submissions,
+				visitors,
+				submitRate: totalVisitors > 0 ? Math.round((visitors / totalVisitors) * 100) : 0,
+			});
+		}
+
+		return result;
 	}
 
 	async getPropertyBreakdowns(query: PropertyBreakdownsQuery, _storage: ReportingStorage): Promise<PropertyBreakdownsReport> {

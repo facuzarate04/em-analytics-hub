@@ -17,7 +17,9 @@ import type {
 	PropertyBreakdownsQuery,
 	PropertyBreakdownsReport,
 	GoalsQuery,
+	FormsAnalyticsQuery,
 } from "./types.js";
+import type { FormAnalyticsRow } from "../helpers/forms-analytics.js";
 import type { GoalMetricRow } from "../types.js";
 
 export async function getStatsReport(
@@ -90,4 +92,12 @@ export async function getGoalsReport(
 	storage: ReportingStorage,
 ): Promise<GoalMetricRow[]> {
 	return backend.getGoals(query, storage);
+}
+
+export async function getFormsAnalyticsReport(
+	backend: AnalyticsReportingBackend,
+	query: FormsAnalyticsQuery,
+	storage: ReportingStorage,
+): Promise<FormAnalyticsRow[]> {
+	return backend.getFormsAnalytics(query, storage);
 }

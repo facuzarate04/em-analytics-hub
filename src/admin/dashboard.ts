@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import type { PluginContext } from "emdash";
-import type { LicenseCache, RawEvent, CustomEvent } from "../types.js";
+import type { LicenseCache, RawEvent } from "../types.js";
 import type { StorageCollection } from "../storage/queries.js";
 import { dateNDaysAgo, today } from "../helpers/date.js";
 import { formatNumber, formatDuration, calculateTrend } from "../helpers/format.js";
@@ -19,10 +19,8 @@ import {
 	canViewFormsAnalytics,
 	canComparePeriods,
 } from "../license/features.js";
-import { queryCustomEvents } from "../storage/custom-events.js";
-import { getCustomEventsReport, getPropertyBreakdownsReport, getGoalsReport } from "../reporting/service.js";
+import { getCustomEventsReport, getPropertyBreakdownsReport, getGoalsReport, getFormsAnalyticsReport } from "../reporting/service.js";
 import { aggregateConfiguredFunnel, aggregateFunnel, buildDefaultFunnelSteps } from "../helpers/funnels.js";
-import { aggregateFormsAnalytics } from "../helpers/forms-analytics.js";
 import { queryRawEvents } from "../storage/events.js";
 import { loadFunnelDefinitions, loadGoalDefinitions } from "./config.js";
 import {
@@ -261,20 +259,17 @@ export async function buildDashboard(
 
 	// ── Funnels v1 ───────────────────────────────────────────────
 	// LEGACY PORTABLE READS (Pro only):
-	// This section reads raw events and custom events from portable storage.
-	// Funnels need per-event granularity. Forms analytics still reads custom_events.
-	// Goals have been migrated to the reporting backend.
+	// This section reads raw events from portable storage for funnels.
+	// Goals and forms analytics have been migrated to the reporting backend.
 	//
 	// Reads:
-	//   events        → funnels (queryRawEvents for step detection)
-	//   custom_events → forms analytics (aggregateFormsAnalytics)
+	//   events → funnels (queryRawEvents for step detection)
 	//
-	// These reads are the remaining reason portable events/custom_events writes
-	// are maintained in CF ingestion. Migrate each to D1/AE to eliminate.
+	// This is the sole remaining reason portable events writes are
+	// maintained in CF ingestion. Migrate funnels to D1/AE to eliminate.
 	if (isPro) {
 		try {
 			const rawEvents = await queryRawEvents(ctx.storage.events as StorageCollection<RawEvent>, dateFrom, dateTo);
-			const customEventItems = await queryCustomEvents(ctx.storage.custom_events as StorageCollection<CustomEvent>, dateFrom, dateTo);
 			const configuredFunnels = (await loadFunnelDefinitions(ctx)).filter((item) => item.active);
 			const configuredGoals = (await loadGoalDefinitions(ctx)).filter((item) => item.active);
 			const funnelSets = configuredFunnels.length > 0
@@ -295,7 +290,13 @@ export async function buildDashboard(
 					goals: configuredGoals,
 				}, storage)
 				: [];
-			const formRows = canViewFormsAnalytics(license) ? aggregateFormsAnalytics(customEventItems, report.visitors) : [];
+			const formRows = canViewFormsAnalytics(license)
+				? await getFormsAnalyticsReport(backend, {
+					dateFrom,
+					dateTo,
+					totalVisitors: report.visitors,
+				}, storage)
+				: [];
 
 			if (funnelSets.length > 0) {
 				blocks.push(

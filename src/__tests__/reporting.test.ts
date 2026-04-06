@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PortableReportingBackend } from "../backends/portable/reporting.js";
-import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport, getCustomEventsReport, getDetectedFormsReport, getPropertyBreakdownsReport, getGoalsReport } from "../reporting/service.js";
+import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport, getCustomEventsReport, getDetectedFormsReport, getPropertyBreakdownsReport, getGoalsReport, getFormsAnalyticsReport } from "../reporting/service.js";
 import type { ReportingStorage } from "../reporting/types.js";
 import type { DailyStats } from "../types.js";
 import { normalizeDailyStats } from "../helpers/aggregation.js";
@@ -611,6 +611,51 @@ describe("PortableReportingBackend", () => {
 			expect(result).toEqual([]);
 		});
 	});
+
+	// -----------------------------------------------------------------------
+	// getFormsAnalytics
+	// -----------------------------------------------------------------------
+
+	describe("getFormsAnalytics", () => {
+		it("returns empty for no data", async () => {
+			const storage = makeStorage([], []);
+			const result = await backend.getFormsAnalytics(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100 },
+				storage,
+			);
+			expect(result).toEqual([]);
+		});
+
+		it("returns form analytics from submit events", async () => {
+			const events = [
+				{ name: "form_submit", pathname: "/p", props: { form: "newsletter" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "form_submit", pathname: "/p", props: { form: "newsletter" }, visitorId: "v2", createdAt: "2026-04-02T12:00:00.000Z" },
+				{ name: "form_submit", pathname: "/p", props: { form: "contact" }, visitorId: "v3", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getFormsAnalytics(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100 },
+				storage,
+			);
+			expect(result.length).toBe(2);
+			expect(result[0].form).toBe("newsletter");
+			expect(result[0].submissions).toBe(2);
+			expect(result[0].visitors).toBe(2);
+			expect(result[1].form).toBe("contact");
+		});
+
+		it("ignores non-submit events", async () => {
+			const events = [
+				{ name: "click", pathname: "/p", props: { form: "newsletter" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getFormsAnalytics(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100 },
+				storage,
+			);
+			expect(result).toEqual([]);
+		});
+	});
 });
 
 // ─── Reporting service ─────────────────────────────────────────────────────
@@ -691,11 +736,21 @@ describe("reporting service", () => {
 
 	it("getGoalsReport delegates to backend", async () => {
 		const mockResult = [{ goal: "Signup", completions: 10, visitors: 5, conversionRate: 5 }];
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn(), getGoals: vi.fn().mockResolvedValue(mockResult) };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn(), getGoals: vi.fn().mockResolvedValue(mockResult), getFormsAnalytics: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getGoalsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100, goals: [] }, storage);
 
 		expect(mockBackend.getGoals).toHaveBeenCalled();
+		expect(result).toEqual(mockResult);
+	});
+
+	it("getFormsAnalyticsReport delegates to backend", async () => {
+		const mockResult = [{ form: "newsletter", event: "form_submit", submissions: 10, visitors: 5, submitRate: 5 }];
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn(), getGoals: vi.fn(), getFormsAnalytics: vi.fn().mockResolvedValue(mockResult) };
+		const storage = makeStorage([]);
+		const result = await getFormsAnalyticsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100 }, storage);
+
+		expect(mockBackend.getFormsAnalytics).toHaveBeenCalled();
 		expect(result).toEqual(mockResult);
 	});
 });

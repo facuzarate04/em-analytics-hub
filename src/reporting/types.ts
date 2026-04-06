@@ -1,4 +1,6 @@
 import type { DailyStats, CustomEvent, GoalDefinition, GoalMetricRow } from "../types.js";
+import type { FormAnalyticsRow } from "../helpers/forms-analytics.js";
+export type { FormAnalyticsRow } from "../helpers/forms-analytics.js";
 import type { StorageCollection } from "../storage/queries.js";
 
 export interface ReportingStorage {
@@ -127,6 +129,13 @@ export interface PropertyBreakdownsQuery {
  */
 export type PropertyBreakdownsReport = Record<string, Record<string, number>>;
 
+export interface FormsAnalyticsQuery {
+	dateFrom: string;
+	dateTo: string;
+	totalVisitors: number;
+	limit?: number;
+}
+
 export interface GoalsQuery {
 	dateFrom: string;
 	dateTo: string;
@@ -148,4 +157,6 @@ export interface AnalyticsReportingBackend {
 	getPropertyBreakdowns(query: PropertyBreakdownsQuery, storage: ReportingStorage): Promise<PropertyBreakdownsReport>;
 	/** Returns goal metric rows. If goals array is empty, auto-detects from event patterns. */
 	getGoals(query: GoalsQuery, storage: ReportingStorage): Promise<GoalMetricRow[]>;
+	/** Returns forms analytics rows: per-form submissions, visitors, and submit rate. */
+	getFormsAnalytics(query: FormsAnalyticsQuery, storage: ReportingStorage): Promise<FormAnalyticsRow[]>;
 }
