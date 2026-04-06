@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PortableReportingBackend } from "../backends/portable/reporting.js";
-import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport, getCustomEventsReport, getDetectedFormsReport } from "../reporting/service.js";
+import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport, getCustomEventsReport, getDetectedFormsReport, getPropertyBreakdownsReport } from "../reporting/service.js";
 import type { ReportingStorage } from "../reporting/types.js";
 import type { DailyStats } from "../types.js";
 import { normalizeDailyStats } from "../helpers/aggregation.js";
@@ -430,6 +430,75 @@ describe("PortableReportingBackend", () => {
 			expect(result).toEqual(["newsletter"]);
 		});
 	});
+
+	// -----------------------------------------------------------------------
+	// getPropertyBreakdowns
+	// -----------------------------------------------------------------------
+
+	describe("getPropertyBreakdowns", () => {
+		it("returns empty for no events", async () => {
+			const storage = makeStorage([], []);
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" },
+				storage,
+			);
+			expect(result).toEqual({});
+		});
+
+		it("returns prop key/value counts for a specific event", async () => {
+			const events = [
+				{ name: "signup", pathname: "/p", props: { plan: "pro", source: "header" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "signup", pathname: "/p", props: { plan: "pro" }, visitorId: "v2", createdAt: "2026-04-02T12:00:00.000Z" },
+				{ name: "signup", pathname: "/p", props: { plan: "free" }, visitorId: "v3", createdAt: "2026-04-03T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" },
+				storage,
+			);
+			expect(result.plan).toEqual({ pro: 2, free: 1 });
+			expect(result.source).toEqual({ header: 1 });
+		});
+
+		it("filters by event name", async () => {
+			const events = [
+				{ name: "signup", pathname: "/p", props: { plan: "pro" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "click", pathname: "/p", props: { target: "button" }, visitorId: "v2", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" },
+				storage,
+			);
+			expect(Object.keys(result)).toEqual(["plan"]);
+		});
+
+		it("respects maxKeys limit", async () => {
+			const events = [
+				{ name: "signup", pathname: "/p", props: { a: "v", b: "v", c: "v" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup", maxKeys: 2 },
+				storage,
+			);
+			expect(Object.keys(result).length).toBe(2);
+		});
+
+		it("respects maxValuesPerKey limit", async () => {
+			const events = [
+				{ name: "signup", pathname: "/p", props: { plan: "pro" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "signup", pathname: "/p", props: { plan: "free" }, visitorId: "v2", createdAt: "2026-04-02T12:00:00.000Z" },
+				{ name: "signup", pathname: "/p", props: { plan: "trial" }, visitorId: "v3", createdAt: "2026-04-03T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup", maxValuesPerKey: 2 },
+				storage,
+			);
+			expect(Object.keys(result.plan).length).toBe(2);
+		});
+	});
 });
 
 // ─── Reporting service ─────────────────────────────────────────────────────
@@ -490,11 +559,21 @@ describe("reporting service", () => {
 	});
 
 	it("getDetectedFormsReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn().mockResolvedValue(["newsletter", "contact"]) };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn().mockResolvedValue(["newsletter", "contact"]), getPropertyBreakdowns: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getDetectedFormsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
 
 		expect(mockBackend.getDetectedForms).toHaveBeenCalled();
 		expect(result).toEqual(["newsletter", "contact"]);
+	});
+
+	it("getPropertyBreakdownsReport delegates to backend", async () => {
+		const mockResult = { plan: { pro: 5, free: 3 } };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn().mockResolvedValue(mockResult) };
+		const storage = makeStorage([]);
+		const result = await getPropertyBreakdownsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" }, storage);
+
+		expect(mockBackend.getPropertyBreakdowns).toHaveBeenCalled();
+		expect(result).toEqual(mockResult);
 	});
 });

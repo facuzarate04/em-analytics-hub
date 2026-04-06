@@ -22,6 +22,7 @@ async function seedData(db: ReturnType<typeof createMockD1>, data: {
 	campaigns?: Array<{ date: string; dimension: string; name: string; count: number }>;
 	customEvents?: Array<{ date: string; event_name: string; count: number }>;
 	formSubmissions?: Array<{ date: string; form_name: string; count: number }>;
+	eventProps?: Array<{ date: string; event_name: string; prop_key: string; prop_value: string; count: number }>;
 }) {
 	for (const p of data.pages ?? []) {
 		await db.prepare(
@@ -63,6 +64,11 @@ async function seedData(db: ReturnType<typeof createMockD1>, data: {
 		await db.prepare(
 			`INSERT INTO daily_form_submissions (date, form_name, count) VALUES (?, ?, ?)`,
 		).bind(fs.date, fs.form_name, fs.count).run();
+	}
+	for (const ep of data.eventProps ?? []) {
+		await db.prepare(
+			`INSERT INTO daily_custom_event_props (date, event_name, prop_key, prop_value, count) VALUES (?, ?, ?, ?, ?)`,
+		).bind(ep.date, ep.event_name, ep.prop_key, ep.prop_value, ep.count).run();
 	}
 }
 
@@ -629,6 +635,110 @@ describe("CloudflareReportingBackend", () => {
 			});
 			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, dummyStorage);
 			expect(result).toEqual(["new_form"]);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// getPropertyBreakdowns
+	// -----------------------------------------------------------------------
+
+	describe("getPropertyBreakdowns", () => {
+		it("returns empty for no data", async () => {
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" },
+				dummyStorage,
+			);
+			expect(result).toEqual({});
+		});
+
+		it("returns prop key/value counts for a specific event", async () => {
+			await seedData(db, {
+				eventProps: [
+					{ date: "2026-04-01", event_name: "signup", prop_key: "plan", prop_value: "pro", count: 5 },
+					{ date: "2026-04-01", event_name: "signup", prop_key: "plan", prop_value: "free", count: 3 },
+					{ date: "2026-04-01", event_name: "signup", prop_key: "source", prop_value: "header", count: 2 },
+				],
+			});
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" },
+				dummyStorage,
+			);
+			expect(result.plan).toEqual({ pro: 5, free: 3 });
+			expect(result.source).toEqual({ header: 2 });
+		});
+
+		it("filters by event name", async () => {
+			await seedData(db, {
+				eventProps: [
+					{ date: "2026-04-01", event_name: "signup", prop_key: "plan", prop_value: "pro", count: 5 },
+					{ date: "2026-04-01", event_name: "click", prop_key: "target", prop_value: "button", count: 10 },
+				],
+			});
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" },
+				dummyStorage,
+			);
+			expect(Object.keys(result)).toEqual(["plan"]);
+		});
+
+		it("aggregates across dates", async () => {
+			await seedData(db, {
+				eventProps: [
+					{ date: "2026-04-01", event_name: "signup", prop_key: "plan", prop_value: "pro", count: 3 },
+					{ date: "2026-04-02", event_name: "signup", prop_key: "plan", prop_value: "pro", count: 7 },
+				],
+			});
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" },
+				dummyStorage,
+			);
+			expect(result.plan.pro).toBe(10);
+		});
+
+		it("respects maxKeys limit", async () => {
+			await seedData(db, {
+				eventProps: [
+					{ date: "2026-04-01", event_name: "signup", prop_key: "a", prop_value: "v1", count: 10 },
+					{ date: "2026-04-01", event_name: "signup", prop_key: "b", prop_value: "v1", count: 5 },
+					{ date: "2026-04-01", event_name: "signup", prop_key: "c", prop_value: "v1", count: 1 },
+				],
+			});
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup", maxKeys: 2 },
+				dummyStorage,
+			);
+			expect(Object.keys(result).length).toBe(2);
+		});
+
+		it("respects maxValuesPerKey limit", async () => {
+			await seedData(db, {
+				eventProps: [
+					{ date: "2026-04-01", event_name: "signup", prop_key: "plan", prop_value: "pro", count: 10 },
+					{ date: "2026-04-01", event_name: "signup", prop_key: "plan", prop_value: "free", count: 5 },
+					{ date: "2026-04-01", event_name: "signup", prop_key: "plan", prop_value: "trial", count: 1 },
+				],
+			});
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup", maxValuesPerKey: 2 },
+				dummyStorage,
+			);
+			expect(Object.keys(result.plan).length).toBe(2);
+			expect(result.plan.pro).toBe(10);
+			expect(result.plan.free).toBe(5);
+		});
+
+		it("filters by date range", async () => {
+			await seedData(db, {
+				eventProps: [
+					{ date: "2026-03-31", event_name: "signup", prop_key: "plan", prop_value: "old", count: 100 },
+					{ date: "2026-04-01", event_name: "signup", prop_key: "plan", prop_value: "new", count: 1 },
+				],
+			});
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" },
+				dummyStorage,
+			);
+			expect(result.plan).toEqual({ new: 1 });
 		});
 	});
 });

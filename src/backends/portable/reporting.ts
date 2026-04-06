@@ -14,13 +14,15 @@ import type {
 	CustomEventsReportQuery,
 	CustomEventsReport,
 	DetectedFormsQuery,
+	PropertyBreakdownsQuery,
+	PropertyBreakdownsReport,
 } from "../../reporting/types.js";
 import type { CustomEvent } from "../../types.js";
 import type { StorageCollection } from "../../storage/queries.js";
 import { queryStatsForRange } from "../../storage/stats.js";
 import { aggregateStats } from "../../helpers/aggregation.js";
 import { aggregateCampaignIntelligence } from "../../helpers/campaign-intelligence.js";
-import { queryCustomEvents, aggregateCustomEvents, aggregateCustomEventTrends } from "../../storage/custom-events.js";
+import { queryCustomEvents, aggregateCustomEvents, aggregateCustomEventTrends, aggregateCustomEventProperties } from "../../storage/custom-events.js";
 
 function pct(part: number, total: number): number {
 	return total > 0 ? Math.round((part / total) * 100) : 0;
@@ -149,5 +151,31 @@ export class PortableReportingBackend implements AnalyticsReportingBackend {
 					.filter((value) => value.length > 0),
 			),
 		).slice(0, query.limit);
+	}
+
+	async getPropertyBreakdowns(query: PropertyBreakdownsQuery, storage: ReportingStorage): Promise<PropertyBreakdownsReport> {
+		const { dateFrom, dateTo, eventName, maxKeys = 10, maxValuesPerKey = 10 } = query;
+
+		const items = await queryCustomEvents(
+			storage.custom_events as StorageCollection<CustomEvent>,
+			dateFrom,
+			dateTo,
+			eventName,
+		);
+
+		const allBreakdowns = aggregateCustomEventProperties(items, eventName);
+
+		// Apply limits: top maxKeys keys, top maxValuesPerKey values per key
+		const result: PropertyBreakdownsReport = {};
+		const sortedKeys = Object.keys(allBreakdowns).slice(0, maxKeys);
+
+		for (const key of sortedKeys) {
+			const values = Object.entries(allBreakdowns[key])
+				.sort(([, a], [, b]) => b - a)
+				.slice(0, maxValuesPerKey);
+			result[key] = Object.fromEntries(values);
+		}
+
+		return result;
 	}
 }

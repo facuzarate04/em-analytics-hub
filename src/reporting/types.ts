@@ -112,6 +112,21 @@ export interface DetectedFormsQuery {
 	limit: number;
 }
 
+export interface PropertyBreakdownsQuery {
+	dateFrom: string;
+	dateTo: string;
+	eventName: string;
+	/** Maximum number of property keys to return (default 10). */
+	maxKeys?: number;
+	/** Maximum number of values per property key (default 10). */
+	maxValuesPerKey?: number;
+}
+
+/**
+ * Property breakdowns result: prop_key → { prop_value → count }.
+ */
+export type PropertyBreakdownsReport = Record<string, Record<string, number>>;
+
 export interface AnalyticsReportingBackend {
 	getStats(query: StatsReportQuery, storage: ReportingStorage): Promise<StatsReport>;
 	getTopPages(query: TopPagesReportQuery, storage: ReportingStorage): Promise<TopPageEntry[]>;
@@ -121,4 +136,6 @@ export interface AnalyticsReportingBackend {
 	getCustomEvents(query: CustomEventsReportQuery, storage: ReportingStorage): Promise<CustomEventsReport>;
 	/** Returns unique form names detected from submit events in the date range. */
 	getDetectedForms(query: DetectedFormsQuery, storage: ReportingStorage): Promise<string[]>;
+	/** Returns property breakdowns for a specific event: prop_key → { prop_value → count }. */
+	getPropertyBreakdowns(query: PropertyBreakdownsQuery, storage: ReportingStorage): Promise<PropertyBreakdownsReport>;
 }

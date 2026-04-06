@@ -405,6 +405,66 @@ describe("CloudflareIngestionBackend", () => {
 	});
 
 	// -----------------------------------------------------------------------
+	// D1: custom event props → daily_custom_event_props table
+	// -----------------------------------------------------------------------
+
+	it("writes custom event property key/value pairs to D1", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({
+			type: "custom",
+			eventName: "signup",
+			eventProps: '{"plan":"pro","source":"header"}',
+		}), storage);
+
+		const table = d1._tables.get("daily_custom_event_props");
+		expect(table).toBeDefined();
+		expect(table!.rows.length).toBe(2);
+		const planRow = table!.rows.find((r) => r.prop_key === "plan");
+		expect(planRow?.prop_value).toBe("pro");
+		expect(planRow?.count).toBe(1);
+		const sourceRow = table!.rows.find((r) => r.prop_key === "source");
+		expect(sourceRow?.prop_value).toBe("header");
+	});
+
+	it("aggregates custom event prop counts in D1", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "custom", eventName: "signup", eventProps: '{"plan":"pro"}' }), storage);
+		await backend.ingest(makeEvent({ type: "custom", eventName: "signup", eventProps: '{"plan":"pro"}' }), storage);
+		await backend.ingest(makeEvent({ type: "custom", eventName: "signup", eventProps: '{"plan":"free"}' }), storage);
+
+		const table = d1._tables.get("daily_custom_event_props");
+		expect(table!.rows.length).toBe(2);
+		const proRow = table!.rows.find((r) => r.prop_value === "pro");
+		expect(proRow?.count).toBe(2);
+		const freeRow = table!.rows.find((r) => r.prop_value === "free");
+		expect(freeRow?.count).toBe(1);
+	});
+
+	it("does NOT write props when eventProps is empty", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "custom", eventName: "click", eventProps: "" }), storage);
+
+		const table = d1._tables.get("daily_custom_event_props");
+		expect(table?.rows.length ?? 0).toBe(0);
+	});
+
+	it("does NOT write props when eventProps is invalid JSON", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "custom", eventName: "click", eventProps: "not json" }), storage);
+
+		const table = d1._tables.get("daily_custom_event_props");
+		expect(table?.rows.length ?? 0).toBe(0);
+	});
+
+	// -----------------------------------------------------------------------
 	// Portable storage: events + custom_events written, daily_stats NOT written
 	// -----------------------------------------------------------------------
 

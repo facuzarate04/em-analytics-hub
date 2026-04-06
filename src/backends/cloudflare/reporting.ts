@@ -23,6 +23,8 @@ import type {
 	CustomEventsReportQuery,
 	CustomEventsReport,
 	DetectedFormsQuery,
+	PropertyBreakdownsQuery,
+	PropertyBreakdownsReport,
 } from "../../reporting/types.js";
 import type { D1Database } from "./d1.js";
 import { ensureD1Schema } from "./d1.js";
@@ -386,6 +388,38 @@ export class CloudflareReportingBackend implements AnalyticsReportingBackend {
 		return (rows.results ?? [])
 			.map((r) => r.form_name)
 			.filter((name) => name !== "");
+	}
+
+	async getPropertyBreakdowns(query: PropertyBreakdownsQuery, _storage: ReportingStorage): Promise<PropertyBreakdownsReport> {
+		await ensureD1Schema(this.db);
+		const { dateFrom, dateTo, eventName, maxKeys = 10, maxValuesPerKey = 10 } = query;
+
+		const rows = await this.db.prepare(
+			`SELECT prop_key, prop_value, SUM(count) as count
+			 FROM daily_custom_event_props
+			 WHERE date >= ? AND date <= ? AND event_name = ?
+			 GROUP BY prop_key, prop_value
+			 ORDER BY count DESC`,
+		).bind(dateFrom, dateTo, eventName).all<{ prop_key: string; prop_value: string; count: number }>();
+
+		const result: PropertyBreakdownsReport = {};
+		const keyCounts = new Map<string, number>();
+
+		for (const row of rows.results ?? []) {
+			if (!result[row.prop_key]) {
+				if (keyCounts.size >= maxKeys && !keyCounts.has(row.prop_key)) continue;
+				result[row.prop_key] = {};
+				keyCounts.set(row.prop_key, 0);
+			}
+
+			const currentCount = keyCounts.get(row.prop_key) ?? 0;
+			if (currentCount >= maxValuesPerKey) continue;
+
+			result[row.prop_key][row.prop_value] = row.count;
+			keyCounts.set(row.prop_key, currentCount + 1);
+		}
+
+		return result;
 	}
 
 	// -----------------------------------------------------------------------

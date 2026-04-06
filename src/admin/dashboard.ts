@@ -19,11 +19,8 @@ import {
 	canViewFormsAnalytics,
 	canComparePeriods,
 } from "../license/features.js";
-import {
-	queryCustomEvents,
-	aggregateCustomEventProperties,
-} from "../storage/custom-events.js";
-import { getCustomEventsReport } from "../reporting/service.js";
+import { queryCustomEvents } from "../storage/custom-events.js";
+import { getCustomEventsReport, getPropertyBreakdownsReport } from "../reporting/service.js";
 import { aggregateConfiguredFunnel, aggregateFunnel, buildDefaultFunnelSteps } from "../helpers/funnels.js";
 import { aggregateConfiguredGoals, aggregateGoals } from "../helpers/goals.js";
 import { aggregateFormsAnalytics } from "../helpers/forms-analytics.js";
@@ -470,16 +467,20 @@ export async function buildDashboard(
 			}
 
 			// Pro: Property breakdowns for top event
-			// LEGACY: Reads from portable storage — needs per-event raw props.
 			if (canViewEventProperties(license)) {
 				const topEventName = eventEntries[0].name;
-				const customEventItems = await queryCustomEvents(ctx.storage.custom_events as StorageCollection<CustomEvent>, dateFrom, dateTo, topEventName);
-				const propBreakdowns = aggregateCustomEventProperties(customEventItems, topEventName);
-				const propKeys = Object.keys(propBreakdowns).slice(0, 2);
+				const propBreakdowns = await getPropertyBreakdownsReport(backend, {
+					dateFrom,
+					dateTo,
+					eventName: topEventName,
+					maxKeys: 2,
+					maxValuesPerKey: 5,
+				}, storage);
+				const propKeys = Object.keys(propBreakdowns);
 				if (propKeys.length > 0) {
 					blocks.push(header(`Properties: ${topEventName}`));
 					for (const propKey of propKeys) {
-						const values = Object.entries(propBreakdowns[propKey]).sort(([, a], [, b]) => b - a).slice(0, 5);
+						const values = Object.entries(propBreakdowns[propKey]).sort(([, a], [, b]) => b - a);
 						blocks.push(tableBlock([{ key: "value", label: propKey }, { key: "count", label: "Count" }], values.map(([v, c]) => ({ value: v, count: formatNumber(c) }))));
 					}
 				}

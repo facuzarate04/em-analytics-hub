@@ -110,6 +110,12 @@ function extractFormName(event: NormalizedEvent): string | null {
 
 const SCROLL_FIELDS = new Set(["scroll25", "scroll50", "scroll75", "scroll100"]);
 
+/** Max length for property keys stored in D1. */
+const MAX_PROP_KEY_LENGTH = 100;
+
+/** Max length for property values stored in D1. */
+const MAX_PROP_VALUE_LENGTH = 200;
+
 function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string): D1PreparedStatement[] {
 	const stmts: D1PreparedStatement[] = [];
 
@@ -239,12 +245,27 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 
 		case "custom": {
 			if (event.eventName) {
+				const truncatedName = event.eventName.slice(0, MAX_EVENT_NAME_LENGTH);
 				stmts.push(
 					db.prepare(
 						`INSERT INTO daily_custom_events (date, event_name, count) VALUES (?, ?, ?)
 						 ON CONFLICT (date, event_name) DO UPDATE SET count = count + 1`,
-					).bind(date, event.eventName.slice(0, MAX_EVENT_NAME_LENGTH), 1),
+					).bind(date, truncatedName, 1),
 				);
+
+				// Property key/value pairs for property breakdowns
+				const props = parseEventProps(event.eventProps);
+				for (const [key, value] of Object.entries(props)) {
+					const strValue = String(value).slice(0, MAX_PROP_VALUE_LENGTH);
+					if (strValue.length > 0) {
+						stmts.push(
+							db.prepare(
+								`INSERT INTO daily_custom_event_props (date, event_name, prop_key, prop_value, count) VALUES (?, ?, ?, ?, ?)
+								 ON CONFLICT (date, event_name, prop_key, prop_value) DO UPDATE SET count = count + 1`,
+							).bind(date, truncatedName, key.slice(0, MAX_PROP_KEY_LENGTH), strValue, 1),
+						);
+					}
+				}
 
 				// Form submission detection for catalog discovery
 				const formName = extractFormName(event);
@@ -274,7 +295,6 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 //   - dashboard funnels section (queryRawEvents, gated by isPro)
 //
 // custom_events:
-//   - dashboard property breakdowns (canViewEventProperties, Pro)
 //   - dashboard goals aggregation  (canViewGoals, Pro)
 //   - dashboard forms analytics    (canViewFormsAnalytics, Pro)
 //
@@ -282,14 +302,15 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 //   - core dashboard stats, top pages, referrers, campaigns
 //   - custom events listing + trends
 //   - catalog (pages, event names, forms)
+//   - property breakdowns
 //
 // Making writes conditional on license is not viable because:
 //   - handleTrack() has no license info (adding KV read adds latency)
 //   - license can change between write time and read time
 //   - ingestion should remain plan-agnostic
 //
-// To fully eliminate these writes, migrate funnels/goals/forms-analytics/
-// property-breakdowns to D1 or AE. Each is an independent future slice.
+// To fully eliminate these writes, migrate funnels/goals/forms-analytics
+// to D1 or AE. Each is an independent future slice.
 // ---------------------------------------------------------------------------
 
 /**

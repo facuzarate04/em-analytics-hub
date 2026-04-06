@@ -14,6 +14,8 @@ import type {
 	CustomEventsReportQuery,
 	CustomEventsReport,
 	DetectedFormsQuery,
+	PropertyBreakdownsQuery,
+	PropertyBreakdownsReport,
 } from "./types.js";
 
 export async function getStatsReport(
@@ -70,4 +72,12 @@ export async function getDetectedFormsReport(
 	storage: ReportingStorage,
 ): Promise<string[]> {
 	return backend.getDetectedForms(query, storage);
+}
+
+export async function getPropertyBreakdownsReport(
+	backend: AnalyticsReportingBackend,
+	query: PropertyBreakdownsQuery,
+	storage: ReportingStorage,
+): Promise<PropertyBreakdownsReport> {
+	return backend.getPropertyBreakdowns(query, storage);
 }
