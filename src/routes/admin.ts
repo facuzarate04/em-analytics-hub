@@ -9,8 +9,8 @@ import { KV_KEYS } from "../constants.js";
 import { buildDashboard } from "../admin/dashboard.js";
 import { buildWidget } from "../admin/widget.js";
 import { handleDeactivateLicense } from "../admin/license.js";
+import { buildCatalogFromStorage } from "../admin/catalog.js";
 import {
-	buildDetectionCatalog,
 	createFunnelDefinition,
 	createFunnelPreset,
 	createGoalDefinition,
@@ -28,43 +28,6 @@ import {
 	buildGoalsPage,
 	buildGoalsUpgradePage,
 } from "../admin/config-pages.js";
-import { dateNDaysAgo, today } from "../helpers/date.js";
-import { queryStatsForRange } from "../storage/stats.js";
-import { queryCustomEvents } from "../storage/custom-events.js";
-
-async function buildConfigCatalog(ctx: PluginContext) {
-	const dateFrom = dateNDaysAgo(30);
-	const dateTo = today();
-	const stats = await queryStatsForRange(ctx.storage.daily_stats as any, dateFrom, dateTo);
-	const customEvents = await queryCustomEvents(ctx.storage.custom_events as any, dateFrom, dateTo);
-
-	const pages = Array.from(
-		new Set(
-			stats
-				.map((item) => item.data.pathname)
-				.filter((pathname): pathname is string => typeof pathname === "string" && pathname.length > 0),
-		),
-	).slice(0, 50);
-
-	const forms = Array.from(
-		new Set(
-			customEvents
-				.filter((item) => item.data.name === "form_submit" || item.data.name.endsWith("_submit"))
-				.map((item) => String(item.data.props.form ?? item.data.props.source ?? item.data.pathname ?? ""))
-				.filter((value) => value.length > 0),
-		),
-	).slice(0, 50);
-
-	const events = Array.from(
-		new Set(
-			customEvents
-				.map((item) => item.data.name)
-				.filter((name) => name.length > 0),
-		),
-	).slice(0, 50);
-
-	return buildDetectionCatalog({ pages, forms, events });
-}
 
 /** License provider injected by sandbox-entry. */
 let _provider: LicenseProvider | null = null;
@@ -93,7 +56,7 @@ export async function handleAdmin(
 
 	const license = await getLicense(ctx.kv);
 
-	// ─── Dashboard Widget ────────────────────────────────────────
+	// ─── Dashboard Widget ──────────���─────────────────────────────
 	if (
 		interaction.type === "page_load" &&
 		interaction.page === "widget:site-overview"
@@ -101,7 +64,7 @@ export async function handleAdmin(
 		return buildWidget(ctx, license);
 	}
 
-	// ─── Analytics Page ──────────────────────────────────────────
+	// ─── Analytics Page ───────────��─────────────────────────��────
 	if (
 		interaction.type === "page_load" &&
 		interaction.page === "/analytics"
@@ -123,7 +86,7 @@ export async function handleAdmin(
 		}
 		const [goals, catalog] = await Promise.all([
 			loadGoalDefinitions(ctx),
-			buildConfigCatalog(ctx),
+			buildCatalogFromStorage(ctx),
 		]);
 		return buildGoalsPage({ goals, catalog });
 	}
@@ -134,13 +97,13 @@ export async function handleAdmin(
 		}
 		const [funnels, catalog, stepCount] = await Promise.all([
 			loadFunnelDefinitions(ctx),
-			buildConfigCatalog(ctx),
+			buildCatalogFromStorage(ctx),
 			loadFunnelBuilderStepCount(ctx),
 		]);
 		return buildFunnelsPage({ funnels, catalog, stepCount });
 	}
 
-	// ─── Date Range Change ───────────────────────────────────────
+	// ─── Date Range Change ───────────���───────────────────────────
 	if (
 		interaction.type === "form_submit" &&
 		interaction.action_id === "apply_range"
@@ -152,7 +115,7 @@ export async function handleAdmin(
 		return buildDashboard(ctx, days, license);
 	}
 
-	// ─── License: Deactivate ─────────────────────────────────────
+	// ─── License: Deactivate ───────���─────────────────────────────
 	if (
 		interaction.type === "form_submit" &&
 		interaction.action_id === "deactivate_license"
@@ -170,7 +133,7 @@ export async function handleAdmin(
 			goals.push(next);
 			await saveGoalDefinitions(ctx, goals);
 		}
-		return buildGoalsPage({ goals: await loadGoalDefinitions(ctx), catalog: await buildConfigCatalog(ctx) });
+		return buildGoalsPage({ goals: await loadGoalDefinitions(ctx), catalog: await buildCatalogFromStorage(ctx) });
 	}
 
 	if (interaction.type === "form_submit" && interaction.action_id === "save_goal") {
@@ -190,7 +153,7 @@ export async function handleAdmin(
 			goals.push(createGoalDefinition({ name, type, target, active }));
 			await saveGoalDefinitions(ctx, goals);
 		}
-		return buildGoalsPage({ goals: await loadGoalDefinitions(ctx), catalog: await buildConfigCatalog(ctx) });
+		return buildGoalsPage({ goals: await loadGoalDefinitions(ctx), catalog: await buildCatalogFromStorage(ctx) });
 	}
 
 	if (interaction.type === "form_submit" && interaction.action_id === "delete_goal") {
@@ -198,7 +161,7 @@ export async function handleAdmin(
 		const goalId = String(interaction.values?.goal_id ?? "");
 		const goals = (await loadGoalDefinitions(ctx)).filter((goal) => goal.id !== goalId);
 		await saveGoalDefinitions(ctx, goals);
-		return buildGoalsPage({ goals, catalog: await buildConfigCatalog(ctx) });
+		return buildGoalsPage({ goals, catalog: await buildCatalogFromStorage(ctx) });
 	}
 
 	if (interaction.type === "form_submit" && interaction.action_id === "add_funnel_preset") {
@@ -212,7 +175,7 @@ export async function handleAdmin(
 		}
 		return buildFunnelsPage({
 			funnels: await loadFunnelDefinitions(ctx),
-			catalog: await buildConfigCatalog(ctx),
+			catalog: await buildCatalogFromStorage(ctx),
 			stepCount: await loadFunnelBuilderStepCount(ctx),
 		});
 	}
@@ -223,7 +186,7 @@ export async function handleAdmin(
 		await saveFunnelBuilderStepCount(ctx, current + 1);
 		return buildFunnelsPage({
 			funnels: await loadFunnelDefinitions(ctx),
-			catalog: await buildConfigCatalog(ctx),
+			catalog: await buildCatalogFromStorage(ctx),
 			stepCount: await loadFunnelBuilderStepCount(ctx),
 		});
 	}
@@ -234,7 +197,7 @@ export async function handleAdmin(
 		await saveFunnelBuilderStepCount(ctx, current - 1);
 		return buildFunnelsPage({
 			funnels: await loadFunnelDefinitions(ctx),
-			catalog: await buildConfigCatalog(ctx),
+			catalog: await buildCatalogFromStorage(ctx),
 			stepCount: await loadFunnelBuilderStepCount(ctx),
 		});
 	}
@@ -267,7 +230,7 @@ export async function handleAdmin(
 		}
 		return buildFunnelsPage({
 			funnels: await loadFunnelDefinitions(ctx),
-			catalog: await buildConfigCatalog(ctx),
+			catalog: await buildCatalogFromStorage(ctx),
 			stepCount: await loadFunnelBuilderStepCount(ctx),
 		});
 	}
@@ -279,7 +242,7 @@ export async function handleAdmin(
 		await saveFunnelDefinitions(ctx, funnels);
 		return buildFunnelsPage({
 			funnels,
-			catalog: await buildConfigCatalog(ctx),
+			catalog: await buildCatalogFromStorage(ctx),
 			stepCount: await loadFunnelBuilderStepCount(ctx),
 		});
 	}
