@@ -3,8 +3,9 @@
 // ---------------------------------------------------------------------------
 
 import type { PluginContext } from "emdash";
-import type { LicenseCache } from "../types.js";
-import { today, dateNDaysAgo } from "../helpers/date.js";
+import type { LicenseCache, RawEvent, CustomEvent } from "../types.js";
+import type { StorageCollection } from "../storage/queries.js";
+import { dateNDaysAgo, today } from "../helpers/date.js";
 import { formatNumber, formatDuration, calculateTrend } from "../helpers/format.js";
 import {
 	getMaxDateRange,
@@ -18,15 +19,12 @@ import {
 	canViewFormsAnalytics,
 	canComparePeriods,
 } from "../license/features.js";
-import { queryStatsForRange } from "../storage/stats.js";
 import {
 	queryCustomEvents,
 	aggregateCustomEvents,
 	aggregateCustomEventTrends,
 	aggregateCustomEventProperties,
 } from "../storage/custom-events.js";
-import { aggregateStats } from "../helpers/aggregation.js";
-import { aggregateCampaignIntelligence } from "../helpers/campaign-intelligence.js";
 import { aggregateConfiguredFunnel, aggregateFunnel, buildDefaultFunnelSteps } from "../helpers/funnels.js";
 import { aggregateConfiguredGoals, aggregateGoals } from "../helpers/goals.js";
 import { aggregateFormsAnalytics } from "../helpers/forms-analytics.js";
@@ -44,8 +42,9 @@ import {
 	barChart,
 	rangeForm,
 } from "./components.js";
+import { getStatsReport, getTopPagesReport, getCampaignIntelligenceReport } from "../reporting/service.js";
+import { reportingBackend, reportingStorage } from "../reporting/backend.js";
 
-/** Colors for custom event trend lines. */
 const EVENT_TREND_COLORS = ["#8B5CF6", "#EC4899", "#F59E0B", "#14B8A6", "#6366F1"];
 
 function topEntry(record: Record<string, number>): [string, number] | null {
@@ -54,10 +53,6 @@ function topEntry(record: Record<string, number>): [string, number] | null {
 		.sort(([, a], [, b]) => b - a)[0] ?? null;
 }
 
-/**
- * Builds the full Analytics dashboard page.
- * Compact layout to stay within EmDash's block rendering limits.
- */
 export async function buildDashboard(
 	ctx: PluginContext,
 	days: number,
@@ -68,38 +63,29 @@ export async function buildDashboard(
 	const dateFrom = dateNDaysAgo(effectiveDays);
 	const dateTo = today();
 	const isPro = !isFreePlan(license);
+	const storage = reportingStorage(ctx);
+	const backend = reportingBackend;
 
-	// Current period
-	const items = await queryStatsForRange(ctx.storage.daily_stats as any, dateFrom, dateTo);
-	const agg = aggregateStats(items);
+	const [report, prevReport, topPages] = await Promise.all([
+		getStatsReport(backend, { dateFrom, dateTo }, storage),
+		getStatsReport(backend, {
+			dateFrom: dateNDaysAgo(effectiveDays * 2),
+			dateTo: dateNDaysAgo(effectiveDays + 1),
+		}, storage),
+		getTopPagesReport(backend, { dateFrom, dateTo, limit: 10 }, storage),
+	]);
 
-	// Previous period for trends
-	const prevItems = await queryStatsForRange(
-		ctx.storage.daily_stats as any,
-		dateNDaysAgo(effectiveDays * 2),
-		dateNDaysAgo(effectiveDays + 1),
-	);
-	const prevAgg = aggregateStats(prevItems);
-
-	// Metrics
-	const avgTime = agg.totalTimeCount > 0 ? Math.round(agg.totalTime / agg.totalTimeCount) : 0;
-	const readRate = agg.totalViews > 0 ? Math.round((agg.totalReads / agg.totalViews) * 100) : 0;
-	const engagedRate = agg.totalViews > 0 ? Math.round((agg.totalEngagedViews / agg.totalViews) * 100) : 0;
-	const recircRate = agg.totalViews > 0 ? Math.round((agg.totalRecircs / agg.totalViews) * 100) : 0;
-	const prevAvgTime = prevAgg.totalTimeCount > 0 ? Math.round(prevAgg.totalTime / prevAgg.totalTimeCount) : 0;
-	const prevReadRate = prevAgg.totalViews > 0 ? Math.round((prevAgg.totalReads / prevAgg.totalViews) * 100) : 0;
-	const prevEngagedRate = prevAgg.totalViews > 0 ? Math.round((prevAgg.totalEngagedViews / prevAgg.totalViews) * 100) : 0;
-	const prevRecircRate = prevAgg.totalViews > 0 ? Math.round((prevAgg.totalRecircs / prevAgg.totalViews) * 100) : 0;
-
-	const viewsTrend = calculateTrend(agg.totalViews, prevAgg.totalViews);
-	const visitorsTrend = calculateTrend(agg.totalVisitors, prevAgg.totalVisitors);
-	const readRateTrend = calculateTrend(readRate, prevReadRate);
-	const timeTrend = calculateTrend(avgTime, prevAvgTime);
-	const engagedTrend = calculateTrend(engagedRate, prevEngagedRate);
-	const recircTrend = calculateTrend(recircRate, prevRecircRate);
-	const scrollCompletion = agg.totalScroll25 > 0
-		? Math.round((agg.totalScroll100 / agg.totalScroll25) * 100)
+	// Metrics from reports
+	const scrollCompletion = report.scrollDepth["25"] > 0
+		? Math.round((report.scrollDepth["100"] / report.scrollDepth["25"]) * 100)
 		: 0;
+
+	const viewsTrend = calculateTrend(report.views, prevReport.views);
+	const visitorsTrend = calculateTrend(report.visitors, prevReport.visitors);
+	const readRateTrend = calculateTrend(report.readRate, prevReport.readRate);
+	const timeTrend = calculateTrend(report.avgTimeSeconds, prevReport.avgTimeSeconds);
+	const engagedTrend = calculateTrend(report.engagedRate, prevReport.engagedRate);
+	const recircTrend = calculateTrend(report.recircRate, prevReport.recircRate);
 
 	// Plan label and range options
 	const planLabel = isPro ? (license.plan === "pro" ? "Pro" : "Business") : "Free";
@@ -115,18 +101,17 @@ export async function buildDashboard(
 		);
 	}
 
-	const topReferrer = topEntry(agg.referrers);
-	const topCampaign = topEntry(agg.utmCampaigns);
-	const topPage = Array.from(agg.byPathname.entries())
-		.sort(([, a], [, b]) => b.views - a.views)[0];
-	const sortedDates = Array.from(agg.byDate.entries()).sort(([a], [b]) => a.localeCompare(b));
+	const topReferrer = topEntry(report.referrers);
+	const topCampaign = topEntry(report.utmCampaigns);
+	const topPage = topPages[0] ?? null;
+	const sortedDates = Object.entries(report.daily).sort(([a], [b]) => a.localeCompare(b));
 
 	const highlights: string[] = [];
-	if (topPage) highlights.push(`Top page: ${topPage[0]} (${formatNumber(topPage[1].views)} views)`);
+	if (topPage) highlights.push(`Top page: ${topPage.pathname} (${formatNumber(topPage.views)} views)`);
 	if (topReferrer) highlights.push(`Top source: ${topReferrer[0]} (${formatNumber(topReferrer[1])})`);
 	if (topCampaign) highlights.push(`Top campaign: ${topCampaign[0]} (${formatNumber(topCampaign[1])})`);
 
-	// ── Build blocks (compact — EmDash has a block render limit) ──
+	// ── Build blocks ─────────────────────────────────────────────
 	const blocks: Record<string, unknown>[] = [
 		header("Analytics"),
 		context(`${planLabel} plan \u00b7 Last ${effectiveDays} days \u00b7 ${dateFrom} to ${dateTo}`),
@@ -152,19 +137,19 @@ export async function buildDashboard(
 
 	blocks.push(
 		statsBlock([
-			{ label: "Views", value: formatNumber(agg.totalViews), ...viewsTrend },
-			{ label: "Visitors", value: formatNumber(agg.totalVisitors), ...visitorsTrend },
-			{ label: "Read Rate", value: `${readRate}%`, ...readRateTrend },
-			{ label: "Avg Time", value: formatDuration(avgTime), ...timeTrend },
+			{ label: "Views", value: formatNumber(report.views), ...viewsTrend },
+			{ label: "Visitors", value: formatNumber(report.visitors), ...visitorsTrend },
+			{ label: "Read Rate", value: `${report.readRate}%`, ...readRateTrend },
+			{ label: "Avg Time", value: formatDuration(report.avgTimeSeconds), ...timeTrend },
 		]),
 		statsBlock([
-			{ label: "Engagement", value: `${engagedRate}%`, ...engagedTrend },
-			{ label: "Recirculation", value: `${recircRate}%`, ...recircTrend },
+			{ label: "Engagement", value: `${report.engagedRate}%`, ...engagedTrend },
+			{ label: "Recirculation", value: `${report.recircRate}%`, ...recircTrend },
 			{ label: "Scroll Completion", value: scrollCompletion > 0 ? `${scrollCompletion}%` : "\u2014" },
 		]),
 	);
 
-	if (canComparePeriods(license) && prevAgg.totalViews > 0) {
+	if (canComparePeriods(license) && prevReport.views > 0) {
 		blocks.push(
 			header("Period Comparison"),
 			context("Compare the current range with the immediately previous period."),
@@ -176,10 +161,10 @@ export async function buildDashboard(
 					{ key: "change", label: "Change" },
 				],
 				[
-					{ metric: "Views", current: formatNumber(agg.totalViews), previous: formatNumber(prevAgg.totalViews), change: viewsTrend.trend ?? "0%" },
-					{ metric: "Visitors", current: formatNumber(agg.totalVisitors), previous: formatNumber(prevAgg.totalVisitors), change: visitorsTrend.trend ?? "0%" },
-					{ metric: "Read Rate", current: `${readRate}%`, previous: `${prevReadRate}%`, change: readRateTrend.trend ?? "0%" },
-					{ metric: "Engagement", current: `${engagedRate}%`, previous: `${prevEngagedRate}%`, change: engagedTrend.trend ?? "0%" },
+					{ metric: "Views", current: formatNumber(report.views), previous: formatNumber(prevReport.views), change: viewsTrend.trend ?? "0%" },
+					{ metric: "Visitors", current: formatNumber(report.visitors), previous: formatNumber(prevReport.visitors), change: visitorsTrend.trend ?? "0%" },
+					{ metric: "Read Rate", current: `${report.readRate}%`, previous: `${prevReport.readRate}%`, change: readRateTrend.trend ?? "0%" },
+					{ metric: "Engagement", current: `${report.engagedRate}%`, previous: `${prevReport.engagedRate}%`, change: engagedTrend.trend ?? "0%" },
 				],
 			),
 		);
@@ -200,9 +185,10 @@ export async function buildDashboard(
 			),
 		);
 	}
-	const scrollValues = [agg.totalScroll25, agg.totalScroll50, agg.totalScroll75, agg.totalScroll100];
+
+	const scrollValues = [report.scrollDepth["25"], report.scrollDepth["50"], report.scrollDepth["75"], report.scrollDepth["100"]];
 	const hasScrollData = scrollValues.some((value) => value > 0);
-	const topReferrers = Object.entries(agg.referrers)
+	const topReferrers = Object.entries(report.referrers)
 		.filter(([name]) => !!name)
 		.sort(([, a], [, b]) => b - a)
 		.slice(0, 5);
@@ -236,7 +222,7 @@ export async function buildDashboard(
 	}
 
 	if (canViewCountries(license)) {
-		const topCountries = Object.entries(agg.countries)
+		const topCountries = Object.entries(report.countries)
 			.filter(([name]) => !!name)
 			.sort(([, a], [, b]) => b - a)
 			.slice(0, 8);
@@ -253,24 +239,20 @@ export async function buildDashboard(
 	}
 
 	// ── Top Pages ────────────────────────────────────────────────
-	const hasTemplate = Array.from(agg.byPathname.values()).some((d) => !!d.template);
-	const hasCollection = Array.from(agg.byPathname.values()).some((d) => !!d.collection);
-	const topPages = Array.from(agg.byPathname.entries())
-		.map(([pathname, data]) => {
-			const row: Record<string, unknown> = {
-				page: pathname,
-				views: formatNumber(data.views),
-				visitors: formatNumber(data.visitors.size),
-				_sort: data.views,
-			};
-			if (hasTemplate) row.template = data.template || "\u2014";
-			if (hasCollection) row.collection = data.collection || "\u2014";
-			return row;
-		})
-		.sort((a, b) => (b._sort as number) - (a._sort as number))
-		.slice(0, 10);
-
 	if (topPages.length > 0) {
+		const hasTemplate = topPages.some((p) => !!p.template);
+		const hasCollection = topPages.some((p) => !!p.collection);
+		const pageRows = topPages.map((p) => {
+			const row: Record<string, unknown> = {
+				page: p.pathname,
+				views: formatNumber(p.views),
+				visitors: formatNumber(p.visitors),
+			};
+			if (hasTemplate) row.template = p.template || "\u2014";
+			if (hasCollection) row.collection = p.collection || "\u2014";
+			return row;
+		});
+
 		const cols: Array<{ key: string; label: string }> = [{ key: "page", label: "Page" }];
 		if (hasTemplate) cols.push({ key: "template", label: "Template" });
 		if (hasCollection) cols.push({ key: "collection", label: "Collection" });
@@ -278,15 +260,15 @@ export async function buildDashboard(
 		blocks.push(
 			header("Top Pages"),
 			context("Your highest-traffic routes in the current range."),
-			tableBlock(cols, topPages),
+			tableBlock(cols, pageRows),
 		);
 	}
 
 	// ── Funnels v1 ───────────────────────────────────────────────
 	if (isPro) {
 		try {
-			const rawEvents = await queryRawEvents(ctx.storage.events as any, dateFrom, dateTo);
-			const customEventItems = await queryCustomEvents(ctx.storage.custom_events as any, dateFrom, dateTo);
+			const rawEvents = await queryRawEvents(ctx.storage.events as StorageCollection<RawEvent>, dateFrom, dateTo);
+			const customEventItems = await queryCustomEvents(ctx.storage.custom_events as StorageCollection<CustomEvent>, dateFrom, dateTo);
 			const configuredFunnels = (await loadFunnelDefinitions(ctx)).filter((item) => item.active);
 			const configuredGoals = (await loadGoalDefinitions(ctx)).filter((item) => item.active);
 			const funnelSets = configuredFunnels.length > 0
@@ -305,11 +287,11 @@ export async function buildDashboard(
 						goals: configuredGoals,
 						rawEvents,
 						customEvents: customEventItems,
-						totalVisitors: agg.totalVisitors,
+						totalVisitors: report.visitors,
 					})
-					: aggregateGoals(customEventItems, agg.totalVisitors)
+					: aggregateGoals(customEventItems, report.visitors)
 				: [];
-			const formRows = canViewFormsAnalytics(license) ? aggregateFormsAnalytics(customEventItems, agg.totalVisitors) : [];
+			const formRows = canViewFormsAnalytics(license) ? aggregateFormsAnalytics(customEventItems, report.visitors) : [];
 
 			if (funnelSets.length > 0) {
 				blocks.push(
@@ -396,7 +378,11 @@ export async function buildDashboard(
 
 	// ── Campaigns / Campaign Intelligence ────────────────────────
 	if (canViewCampaignIntelligence(license)) {
-		const sourceMetrics = aggregateCampaignIntelligence(items, "source");
+		const sourceMetrics = await getCampaignIntelligenceReport(backend, {
+			dateFrom,
+			dateTo,
+			dimension: "source",
+		}, storage);
 		if (sourceMetrics.length > 0) {
 			blocks.push(
 				header("Campaign Intelligence"),
@@ -421,9 +407,9 @@ export async function buildDashboard(
 		}
 	} else {
 		const campaignRows: Array<Record<string, unknown>> = [];
-		for (const [s, c] of Object.entries(agg.utmSources)) { if (s) campaignRows.push({ type: "Source", value: s, views: formatNumber(c), _sort: c }); }
-		for (const [m, c] of Object.entries(agg.utmMediums)) { if (m) campaignRows.push({ type: "Medium", value: m, views: formatNumber(c), _sort: c }); }
-		for (const [ca, c] of Object.entries(agg.utmCampaigns)) { if (ca) campaignRows.push({ type: "Campaign", value: ca, views: formatNumber(c), _sort: c }); }
+		for (const [s, c] of Object.entries(report.utmSources)) { if (s) campaignRows.push({ type: "Source", value: s, views: formatNumber(c), _sort: c }); }
+		for (const [m, c] of Object.entries(report.utmMediums)) { if (m) campaignRows.push({ type: "Medium", value: m, views: formatNumber(c), _sort: c }); }
+		for (const [ca, c] of Object.entries(report.utmCampaigns)) { if (ca) campaignRows.push({ type: "Campaign", value: ca, views: formatNumber(c), _sort: c }); }
 		campaignRows.sort((a, b) => (b._sort as number) - (a._sort as number));
 		if (campaignRows.length > 0) {
 			blocks.push(
@@ -436,7 +422,7 @@ export async function buildDashboard(
 
 	// ── Custom Events + Property Breakdowns ──────────────────────
 	try {
-		const customEventItems = await queryCustomEvents(ctx.storage.custom_events as any, dateFrom, dateTo);
+		const customEventItems = await queryCustomEvents(ctx.storage.custom_events as StorageCollection<CustomEvent>, dateFrom, dateTo);
 		const eventCounts = aggregateCustomEvents(customEventItems);
 		const eventEntries = Object.entries(eventCounts).sort(([, a], [, b]) => b - a).slice(0, 8);
 
@@ -508,13 +494,13 @@ export async function buildDashboard(
 			context(`License: ${planName} \u00b7 ${statusLabel}${license.siteUrl ? ` \u00b7 ${license.siteUrl}` : ""}`),
 		);
 	} else {
-		if (agg.totalViews > 0) {
+		if (report.views > 0) {
 			blocks.push(banner("Free plan active", "Add your Pro License Key in plugin settings to unlock goals, funnels, event properties, countries, and 365-day retention."));
 		}
 	}
 
 	// ── Empty state ──────────────────────────────────────────────
-	if (items.length === 0) {
+	if (Object.keys(report.daily).length === 0 && report.views === 0) {
 		blocks.push(banner("No data yet", "Analytics will appear here once visitors start browsing your site."));
 	}
 

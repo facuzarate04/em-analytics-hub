@@ -5,12 +5,9 @@
 import type { PluginContext, RouteContext } from "emdash";
 import { today, dateNDaysAgo } from "../helpers/date.js";
 import { getLicense, getMaxDateRange } from "../license/features.js";
-import { queryStatsForRange } from "../storage/stats.js";
-import { aggregateStats } from "../helpers/aggregation.js";
+import { getReferrersReport } from "../reporting/service.js";
+import { reportingBackend, reportingStorage } from "../reporting/backend.js";
 
-/**
- * Returns referrer breakdown sorted by count.
- */
 export async function handleReferrers(
 	routeCtx: RouteContext,
 	ctx: PluginContext,
@@ -27,15 +24,11 @@ export async function handleReferrers(
 		50,
 	);
 
-	const dateFrom = dateNDaysAgo(days);
-	const dateTo = today();
-	const items = await queryStatsForRange(ctx.storage.daily_stats as any, dateFrom, dateTo);
-	const agg = aggregateStats(items);
-
-	const referrers = Object.entries(agg.referrers)
-		.sort(([, a], [, b]) => b - a)
-		.slice(0, limit)
-		.map(([domain, count]) => ({ domain, count }));
+	const referrers = await getReferrersReport(reportingBackend, {
+		dateFrom: dateNDaysAgo(days),
+		dateTo: today(),
+		limit,
+	}, reportingStorage(ctx));
 
 	return { referrers, plan: license.plan };
 }

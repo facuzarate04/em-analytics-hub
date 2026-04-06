@@ -1,6 +1,6 @@
 {
 	"name": "em-analytics-hub",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "CMS-aware, portable, privacy-first analytics hub for EmDash. Track pageviews, UTM campaigns, custom events, and more — segmented by route, template, and collection.",
 	"type": "module",
 	"license": "MIT",
