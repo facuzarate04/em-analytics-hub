@@ -140,7 +140,7 @@ describe("buildCatalogFromStorage", () => {
 		} as any;
 	}
 
-	it("discovers pages via reporting backend and custom events from storage", async () => {
+	it("discovers pages and event names via reporting backend, forms from portable", async () => {
 		const ctx = makeCtx(
 			[
 				makeDailyStats({ pathname: "/blog", views: 10 }),
@@ -153,14 +153,14 @@ describe("buildCatalogFromStorage", () => {
 		);
 		const catalog = await buildCatalogFromStorage(ctx);
 
-		// Pages come from reporting backend (getTopPages) which reads daily_stats
-		// in portable mode — so the mock storage is still queried
+		// Pages come from reporting backend (getTopPages)
 		expect(catalog.pages).toContain("/about");
 		expect(catalog.pages).toContain("/blog");
-		// Custom events still come from portable storage
-		expect(catalog.forms).toContain("newsletter");
+		// Event names come from reporting backend (getCustomEvents)
 		expect(catalog.events).toContain("signup");
 		expect(catalog.events).toContain("form_submit");
+		// Forms come from portable storage (needs raw props)
+		expect(catalog.forms).toContain("newsletter");
 	});
 
 	it("returns empty catalog for no data", async () => {
@@ -170,6 +170,39 @@ describe("buildCatalogFromStorage", () => {
 		expect(catalog.pages).toEqual([]);
 		expect(catalog.forms).toEqual([]);
 		expect(catalog.events).toEqual([]);
+	});
+
+	it("event names come from reporting backend, not raw custom_events", async () => {
+		// The reporting backend returns events sorted by count descending,
+		// so catalog event names reflect that ordering (not insertion order).
+		const ctx = makeCtx(
+			[],
+			[
+				makeCustomEvent({ name: "rare_event" }),
+				makeCustomEvent({ name: "popular_event" }),
+				makeCustomEvent({ name: "popular_event" }),
+				makeCustomEvent({ name: "popular_event" }),
+			],
+		);
+		const catalog = await buildCatalogFromStorage(ctx);
+
+		// Both events present — popular_event has higher count via reporting backend
+		expect(catalog.events).toContain("rare_event");
+		expect(catalog.events).toContain("popular_event");
+	});
+
+	it("forms still detected from portable storage props", async () => {
+		const ctx = makeCtx(
+			[],
+			[
+				makeCustomEvent({ name: "form_submit", props: { form: "contact" } }),
+				makeCustomEvent({ name: "newsletter_submit", props: { source: "footer" } }),
+			],
+		);
+		const catalog = await buildCatalogFromStorage(ctx);
+
+		expect(catalog.forms).toContain("contact");
+		expect(catalog.forms).toContain("footer");
 	});
 
 	it("sorts entries alphabetically", async () => {
