@@ -5,12 +5,12 @@
 import type { PluginContext, RouteContext } from "emdash";
 import { today, dateNDaysAgo } from "../helpers/date.js";
 import { getLicense, getMaxDateRange } from "../license/features.js";
-import { queryStatsForRange } from "../storage/stats.js";
-import { aggregateStats } from "../helpers/aggregation.js";
+import { getCampaignsReport } from "../reporting/service.js";
+import type { ReportingStorage } from "../reporting/types.js";
+import { PortableReportingBackend } from "../backends/portable/reporting.js";
 
-/**
- * Returns UTM campaign performance data (sources, mediums, campaigns).
- */
+const backend = new PortableReportingBackend();
+
 export async function handleCampaigns(
 	routeCtx: RouteContext,
 	ctx: PluginContext,
@@ -23,22 +23,14 @@ export async function handleCampaigns(
 		maxDays,
 	);
 
-	const dateFrom = dateNDaysAgo(days);
-	const dateTo = today();
-	const items = await queryStatsForRange(ctx.storage.daily_stats as any, dateFrom, dateTo);
-	const agg = aggregateStats(items);
-
-	const sortEntries = (record: Record<string, number>, limit = 20) =>
-		Object.entries(record)
-			.filter(([key]) => key !== "")
-			.sort(([, a], [, b]) => b - a)
-			.slice(0, limit)
-			.map(([name, count]) => ({ name, count }));
-
-	return {
-		sources: sortEntries(agg.utmSources),
-		mediums: sortEntries(agg.utmMediums),
-		campaigns: sortEntries(agg.utmCampaigns),
-		plan: license.plan,
+	const storage: ReportingStorage = {
+		daily_stats: ctx.storage.daily_stats as ReportingStorage["daily_stats"],
 	};
+
+	const report = await getCampaignsReport(backend, {
+		dateFrom: dateNDaysAgo(days),
+		dateTo: today(),
+	}, storage);
+
+	return { ...report, plan: license.plan };
 }

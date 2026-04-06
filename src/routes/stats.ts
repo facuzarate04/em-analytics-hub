@@ -3,16 +3,14 @@
 // ---------------------------------------------------------------------------
 
 import type { PluginContext, RouteContext } from "emdash";
-import type { LicenseCache } from "../types.js";
 import { today, dateNDaysAgo } from "../helpers/date.js";
 import { getLicense, hasFeature, getMaxDateRange } from "../license/features.js";
-import { queryStatsForRange } from "../storage/stats.js";
-import { aggregateStats } from "../helpers/aggregation.js";
+import { getStatsReport } from "../reporting/service.js";
+import type { ReportingStorage } from "../reporting/types.js";
+import { PortableReportingBackend } from "../backends/portable/reporting.js";
 
-/**
- * Returns aggregated analytics stats for a date range.
- * Supports optional pathname filter and respects plan limits.
- */
+const backend = new PortableReportingBackend();
+
 export async function handleStats(
 	routeCtx: RouteContext,
 	ctx: PluginContext,
@@ -26,42 +24,23 @@ export async function handleStats(
 		maxDays,
 	);
 
-	const dateFrom = dateNDaysAgo(days);
-	const dateTo = today();
-	const items = await queryStatsForRange(ctx.storage.daily_stats as any, dateFrom, dateTo, pathname);
-	const agg = aggregateStats(items);
+	const storage: ReportingStorage = {
+		daily_stats: ctx.storage.daily_stats as ReportingStorage["daily_stats"],
+	};
 
-	const avgTime = agg.totalTimeCount > 0 ? Math.round(agg.totalTime / agg.totalTimeCount) : 0;
-	const readRate = agg.totalViews > 0 ? Math.round((agg.totalReads / agg.totalViews) * 100) : 0;
-	const engagedRate = agg.totalViews > 0 ? Math.round((agg.totalEngagedViews / agg.totalViews) * 100) : 0;
-	const recircRate = agg.totalViews > 0 ? Math.round((agg.totalRecircs / agg.totalViews) * 100) : 0;
+	const report = await getStatsReport(backend, {
+		dateFrom: dateNDaysAgo(days),
+		dateTo: today(),
+		pathname,
+	}, storage);
 
 	const response: Record<string, unknown> = {
 		plan: license.plan,
-		views: agg.totalViews,
-		visitors: agg.totalVisitors,
-		reads: agg.totalReads,
-		readRate,
-		avgTimeSeconds: avgTime,
-		engagedViews: agg.totalEngagedViews,
-		engagedRate,
-		recircs: agg.totalRecircs,
-		recircRate,
-		scrollDepth: {
-			"25": agg.totalScroll25,
-			"50": agg.totalScroll50,
-			"75": agg.totalScroll75,
-			"100": agg.totalScroll100,
-		},
-		referrers: agg.referrers,
-		utmSources: agg.utmSources,
-		utmMediums: agg.utmMediums,
-		utmCampaigns: agg.utmCampaigns,
-		daily: Object.fromEntries(agg.byDate),
+		...report,
 	};
 
-	if (hasFeature(license, "countries")) {
-		response.countries = agg.countries;
+	if (!hasFeature(license, "countries")) {
+		delete response.countries;
 	}
 
 	return response;

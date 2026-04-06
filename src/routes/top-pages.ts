@@ -5,13 +5,13 @@
 import type { PluginContext, RouteContext } from "emdash";
 import { today, dateNDaysAgo } from "../helpers/date.js";
 import { getLicense, getMaxDateRange } from "../license/features.js";
-import { queryStatsForRange } from "../storage/stats.js";
-import { aggregateStats } from "../helpers/aggregation.js";
+import { getTopPagesReport } from "../reporting/service.js";
+import type { ReportingStorage } from "../reporting/types.js";
+import { PortableReportingBackend } from "../backends/portable/reporting.js";
 import { MAX_TOP_PAGES, DEFAULT_TOP_PAGES_LIMIT } from "../constants.js";
 
-/**
- * Returns top pages ranked by views with template/collection info.
- */
+const backend = new PortableReportingBackend();
+
 export async function handleTopPages(
 	routeCtx: RouteContext,
 	ctx: PluginContext,
@@ -28,26 +28,15 @@ export async function handleTopPages(
 		MAX_TOP_PAGES,
 	);
 
-	const dateFrom = dateNDaysAgo(days);
-	const dateTo = today();
-	const items = await queryStatsForRange(ctx.storage.daily_stats as any, dateFrom, dateTo);
-	const agg = aggregateStats(items);
+	const storage: ReportingStorage = {
+		daily_stats: ctx.storage.daily_stats as ReportingStorage["daily_stats"],
+	};
 
-	const pages = Array.from(agg.byPathname.entries())
-		.map(([pathname, data]) => ({
-			pathname,
-			template: data.template,
-			collection: data.collection,
-			views: data.views,
-			visitors: data.visitors.size,
-			reads: data.reads,
-			readRate: data.views > 0 ? Math.round((data.reads / data.views) * 100) : 0,
-			avgTime: data.timeCount > 0 ? Math.round(data.timeTotal / data.timeCount) : 0,
-			engagedRate: data.views > 0 ? Math.round((data.engagedViews / data.views) * 100) : 0,
-			recircRate: data.views > 0 ? Math.round((data.recircs / data.views) * 100) : 0,
-		}))
-		.sort((a, b) => b.views - a.views)
-		.slice(0, limit);
+	const pages = await getTopPagesReport(backend, {
+		dateFrom: dateNDaysAgo(days),
+		dateTo: today(),
+		limit,
+	}, storage);
 
 	return { pages, plan: license.plan };
 }
