@@ -21,7 +21,7 @@ export async function handleStats(
 		maxDays,
 	);
 
-	const report = await getStatsReport(reportingBackend, {
+	const report = await getStatsReport(reportingBackend(), {
 		dateFrom: dateNDaysAgo(days),
 		dateTo: today(),
 		pathname,

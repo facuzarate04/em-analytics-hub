@@ -15,7 +15,7 @@ export async function buildWidget(
 	_license: LicenseCache,
 ): Promise<Record<string, unknown>> {
 	const storage = reportingStorage(ctx);
-	const backend = reportingBackend;
+	const backend = reportingBackend();
 
 	const [report, prevReport, topPages] = await Promise.all([
 		getStatsReport(backend, { dateFrom: dateNDaysAgo(7), dateTo: today() }, storage),

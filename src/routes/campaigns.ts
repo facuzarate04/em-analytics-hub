@@ -20,7 +20,7 @@ export async function handleCampaigns(
 		maxDays,
 	);
 
-	const report = await getCampaignsReport(reportingBackend, {
+	const report = await getCampaignsReport(reportingBackend(), {
 		dateFrom: dateNDaysAgo(days),
 		dateTo: today(),
 	}, reportingStorage(ctx));

@@ -1,8 +1,10 @@
 import type { PluginContext } from "emdash";
 import type { ReportingStorage } from "./types.js";
-import { PortableReportingBackend } from "../backends/portable/reporting.js";
+import { getRuntime } from "../runtime/index.js";
 
-export const reportingBackend = new PortableReportingBackend();
+export function reportingBackend() {
+	return getRuntime().reporting;
+}
 
 export function reportingStorage(ctx: PluginContext): ReportingStorage {
 	return {

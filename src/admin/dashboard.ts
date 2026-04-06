@@ -64,7 +64,7 @@ export async function buildDashboard(
 	const dateTo = today();
 	const isPro = !isFreePlan(license);
 	const storage = reportingStorage(ctx);
-	const backend = reportingBackend;
+	const backend = reportingBackend();
 
 	const [report, prevReport, topPages] = await Promise.all([
 		getStatsReport(backend, { dateFrom, dateTo }, storage),

@@ -25,7 +25,7 @@ export async function handleTopPages(
 		MAX_TOP_PAGES,
 	);
 
-	const pages = await getTopPagesReport(reportingBackend, {
+	const pages = await getTopPagesReport(reportingBackend(), {
 		dateFrom: dateNDaysAgo(days),
 		dateTo: today(),
 		limit,

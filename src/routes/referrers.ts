@@ -24,7 +24,7 @@ export async function handleReferrers(
 		50,
 	);
 
-	const referrers = await getReferrersReport(reportingBackend, {
+	const referrers = await getReferrersReport(reportingBackend(), {
 		dateFrom: dateNDaysAgo(days),
 		dateTo: today(),
 		limit,
