@@ -16,7 +16,9 @@ import type {
 	DetectedFormsQuery,
 	PropertyBreakdownsQuery,
 	PropertyBreakdownsReport,
+	GoalsQuery,
 } from "./types.js";
+import type { GoalMetricRow } from "../types.js";
 
 export async function getStatsReport(
 	backend: AnalyticsReportingBackend,
@@ -80,4 +82,12 @@ export async function getPropertyBreakdownsReport(
 	storage: ReportingStorage,
 ): Promise<PropertyBreakdownsReport> {
 	return backend.getPropertyBreakdowns(query, storage);
+}
+
+export async function getGoalsReport(
+	backend: AnalyticsReportingBackend,
+	query: GoalsQuery,
+	storage: ReportingStorage,
+): Promise<GoalMetricRow[]> {
+	return backend.getGoals(query, storage);
 }

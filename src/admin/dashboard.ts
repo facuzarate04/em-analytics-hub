@@ -20,9 +20,8 @@ import {
 	canComparePeriods,
 } from "../license/features.js";
 import { queryCustomEvents } from "../storage/custom-events.js";
-import { getCustomEventsReport, getPropertyBreakdownsReport } from "../reporting/service.js";
+import { getCustomEventsReport, getPropertyBreakdownsReport, getGoalsReport } from "../reporting/service.js";
 import { aggregateConfiguredFunnel, aggregateFunnel, buildDefaultFunnelSteps } from "../helpers/funnels.js";
-import { aggregateConfiguredGoals, aggregateGoals } from "../helpers/goals.js";
 import { aggregateFormsAnalytics } from "../helpers/forms-analytics.js";
 import { queryRawEvents } from "../storage/events.js";
 import { loadFunnelDefinitions, loadGoalDefinitions } from "./config.js";
@@ -263,15 +262,14 @@ export async function buildDashboard(
 	// ── Funnels v1 ───────────────────────────────────────────────
 	// LEGACY PORTABLE READS (Pro only):
 	// This section reads raw events and custom events from portable storage.
-	// It cannot use the reporting backend because funnels, goals, and forms
-	// analytics need per-event granularity with raw props.
+	// Funnels need per-event granularity. Forms analytics still reads custom_events.
+	// Goals have been migrated to the reporting backend.
 	//
 	// Reads:
 	//   events        → funnels (queryRawEvents for step detection)
-	//   custom_events → goals (aggregateGoals/aggregateConfiguredGoals)
-	//                 → forms analytics (aggregateFormsAnalytics)
+	//   custom_events → forms analytics (aggregateFormsAnalytics)
 	//
-	// These reads are the sole reason portable events/custom_events writes
+	// These reads are the remaining reason portable events/custom_events writes
 	// are maintained in CF ingestion. Migrate each to D1/AE to eliminate.
 	if (isPro) {
 		try {
@@ -290,14 +288,12 @@ export async function buildDashboard(
 					return rows.length >= 2 ? [{ name: "Detected Funnel", rows }] : [];
 				})();
 			const goalRows = canViewGoals(license)
-				? configuredGoals.length > 0
-					? aggregateConfiguredGoals({
-						goals: configuredGoals,
-						rawEvents,
-						customEvents: customEventItems,
-						totalVisitors: report.visitors,
-					})
-					: aggregateGoals(customEventItems, report.visitors)
+				? await getGoalsReport(backend, {
+					dateFrom,
+					dateTo,
+					totalVisitors: report.visitors,
+					goals: configuredGoals,
+				}, storage)
 				: [];
 			const formRows = canViewFormsAnalytics(license) ? aggregateFormsAnalytics(customEventItems, report.visitors) : [];
 

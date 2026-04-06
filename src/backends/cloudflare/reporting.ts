@@ -25,7 +25,10 @@ import type {
 	DetectedFormsQuery,
 	PropertyBreakdownsQuery,
 	PropertyBreakdownsReport,
+	GoalsQuery,
 } from "../../reporting/types.js";
+import type { GoalMetricRow } from "../../types.js";
+import { isAutoGoalCandidate, prettifyGoalName } from "../../helpers/goals.js";
 import type { D1Database } from "./d1.js";
 import { ensureD1Schema } from "./d1.js";
 
@@ -390,6 +393,16 @@ export class CloudflareReportingBackend implements AnalyticsReportingBackend {
 			.filter((name) => name !== "");
 	}
 
+	async getGoals(query: GoalsQuery, _storage: ReportingStorage): Promise<GoalMetricRow[]> {
+		await ensureD1Schema(this.db);
+		const { dateFrom, dateTo, totalVisitors, goals } = query;
+
+		if (goals.length === 0) {
+			return this.autoDetectGoals(dateFrom, dateTo, totalVisitors);
+		}
+		return this.computeConfiguredGoals(goals, dateFrom, dateTo, totalVisitors);
+	}
+
 	async getPropertyBreakdowns(query: PropertyBreakdownsQuery, _storage: ReportingStorage): Promise<PropertyBreakdownsReport> {
 		await ensureD1Schema(this.db);
 		const { dateFrom, dateTo, eventName, maxKeys = 10, maxValuesPerKey = 10 } = query;
@@ -459,5 +472,136 @@ export class CloudflareReportingBackend implements AnalyticsReportingBackend {
 		).bind(dateFrom, dateTo, dimension, limit).all<{ name: string; count: number }>();
 
 		return (rows.results ?? []).filter((r) => r.name !== "");
+	}
+
+	private async autoDetectGoals(
+		dateFrom: string,
+		dateTo: string,
+		totalVisitors: number,
+	): Promise<GoalMetricRow[]> {
+		// Get all custom event counts
+		const eventRows = await this.db.prepare(
+			`SELECT event_name, SUM(count) as completions
+			 FROM daily_custom_events
+			 WHERE date >= ? AND date <= ?
+			 GROUP BY event_name
+			 ORDER BY completions DESC`,
+		).bind(dateFrom, dateTo).all<{ event_name: string; completions: number }>();
+
+		// Filter to auto-goal candidates
+		const candidates = (eventRows.results ?? []).filter((r) => isAutoGoalCandidate(r.event_name));
+		if (candidates.length === 0) return [];
+
+		// Get unique visitors per candidate event
+		const names = candidates.map((c) => c.event_name);
+		const placeholders = names.map(() => "?").join(", ");
+		const visitorRows = await this.db.prepare(
+			`SELECT event_name, COUNT(DISTINCT visitor_id) as visitors
+			 FROM daily_custom_event_visitors
+			 WHERE date >= ? AND date <= ? AND event_name IN (${placeholders})
+			 GROUP BY event_name`,
+		).bind(dateFrom, dateTo, ...names).all<{ event_name: string; visitors: number }>();
+
+		const visitorMap = new Map<string, number>();
+		for (const r of visitorRows.results ?? []) {
+			visitorMap.set(r.event_name, r.visitors);
+		}
+
+		return candidates
+			.map((c) => {
+				const visitors = visitorMap.get(c.event_name) ?? 0;
+				return {
+					goal: prettifyGoalName(c.event_name),
+					completions: c.completions,
+					visitors,
+					conversionRate: totalVisitors > 0 ? Math.round((visitors / totalVisitors) * 100) : 0,
+				};
+			})
+			.slice(0, 5);
+	}
+
+	private async computeConfiguredGoals(
+		goals: GoalsQuery["goals"],
+		dateFrom: string,
+		dateTo: string,
+		totalVisitors: number,
+	): Promise<GoalMetricRow[]> {
+		const rows: GoalMetricRow[] = [];
+
+		for (const goal of goals) {
+			if (!goal.active) continue;
+
+			if (goal.type === "page") {
+				// Page goals — daily_pages + daily_visitors
+				const pageRow = await this.db.prepare(
+					`SELECT COALESCE(SUM(views), 0) as completions
+					 FROM daily_pages
+					 WHERE date >= ? AND date <= ? AND pathname = ?`,
+				).bind(dateFrom, dateTo, goal.target).first<{ completions: number }>();
+
+				const visitorRow = await this.db.prepare(
+					`SELECT COUNT(DISTINCT visitor_id) as visitors
+					 FROM daily_visitors
+					 WHERE date >= ? AND date <= ? AND pathname = ?`,
+				).bind(dateFrom, dateTo, goal.target).first<{ visitors: number }>();
+
+				const completions = pageRow?.completions ?? 0;
+				const visitors = visitorRow?.visitors ?? 0;
+				rows.push({
+					goal: goal.name,
+					completions,
+					visitors,
+					conversionRate: totalVisitors > 0 ? Math.round((visitors / totalVisitors) * 100) : 0,
+				});
+			} else if (goal.type === "event") {
+				// Event goals — daily_custom_events + daily_custom_event_visitors
+				const eventRow = await this.db.prepare(
+					`SELECT COALESCE(SUM(count), 0) as completions
+					 FROM daily_custom_events
+					 WHERE date >= ? AND date <= ? AND event_name = ?`,
+				).bind(dateFrom, dateTo, goal.target).first<{ completions: number }>();
+
+				const visitorRow = await this.db.prepare(
+					`SELECT COUNT(DISTINCT visitor_id) as visitors
+					 FROM daily_custom_event_visitors
+					 WHERE date >= ? AND date <= ? AND event_name = ?`,
+				).bind(dateFrom, dateTo, goal.target).first<{ visitors: number }>();
+
+				const completions = eventRow?.completions ?? 0;
+				const visitors = visitorRow?.visitors ?? 0;
+				rows.push({
+					goal: goal.name,
+					completions,
+					visitors,
+					conversionRate: totalVisitors > 0 ? Math.round((visitors / totalVisitors) * 100) : 0,
+				});
+			} else if (goal.type === "form") {
+				// Form goals — daily_form_submissions + daily_form_visitors
+				const formRow = await this.db.prepare(
+					`SELECT COALESCE(SUM(count), 0) as completions
+					 FROM daily_form_submissions
+					 WHERE date >= ? AND date <= ? AND form_name = ?`,
+				).bind(dateFrom, dateTo, goal.target).first<{ completions: number }>();
+
+				const visitorRow = await this.db.prepare(
+					`SELECT COUNT(DISTINCT visitor_id) as visitors
+					 FROM daily_form_visitors
+					 WHERE date >= ? AND date <= ? AND form_name = ?`,
+				).bind(dateFrom, dateTo, goal.target).first<{ visitors: number }>();
+
+				const completions = formRow?.completions ?? 0;
+				const visitors = visitorRow?.visitors ?? 0;
+				rows.push({
+					goal: goal.name,
+					completions,
+					visitors,
+					conversionRate: totalVisitors > 0 ? Math.round((visitors / totalVisitors) * 100) : 0,
+				});
+			}
+		}
+
+		return rows
+			.filter((row) => row.completions > 0)
+			.sort((a, b) => b.completions - a.completions);
 	}
 }

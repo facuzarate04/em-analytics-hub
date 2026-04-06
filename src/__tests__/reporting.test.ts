@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PortableReportingBackend } from "../backends/portable/reporting.js";
-import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport, getCustomEventsReport, getDetectedFormsReport, getPropertyBreakdownsReport } from "../reporting/service.js";
+import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport, getCustomEventsReport, getDetectedFormsReport, getPropertyBreakdownsReport, getGoalsReport } from "../reporting/service.js";
 import type { ReportingStorage } from "../reporting/types.js";
 import type { DailyStats } from "../types.js";
 import { normalizeDailyStats } from "../helpers/aggregation.js";
@@ -499,6 +499,118 @@ describe("PortableReportingBackend", () => {
 			expect(Object.keys(result.plan).length).toBe(2);
 		});
 	});
+
+	// -----------------------------------------------------------------------
+	// getGoals
+	// -----------------------------------------------------------------------
+
+	describe("getGoals", () => {
+		it("returns empty for no data (auto-detect)", async () => {
+			const storage = makeStorage([], []);
+			const result = await backend.getGoals(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100, goals: [] },
+				storage,
+			);
+			expect(result).toEqual([]);
+		});
+
+		it("auto-detects goals from event patterns", async () => {
+			const events = [
+				{ name: "signup_submit", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "signup_submit", pathname: "/p", props: {}, visitorId: "v2", createdAt: "2026-04-02T12:00:00.000Z" },
+				{ name: "purchase", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "plain_click", pathname: "/p", props: {}, visitorId: "v3", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getGoals(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100, goals: [] },
+				storage,
+			);
+			// plain_click is NOT a goal candidate
+			expect(result.length).toBe(2);
+			expect(result[0].completions).toBe(2); // signup_submit
+			expect(result[0].visitors).toBe(2);
+		});
+
+		it("computes configured event goal", async () => {
+			const events = [
+				{ name: "cta_click", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "cta_click", pathname: "/p", props: {}, visitorId: "v2", createdAt: "2026-04-02T12:00:00.000Z" },
+				{ name: "cta_click", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-03T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getGoals({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				totalVisitors: 50,
+				goals: [{ id: "g1", name: "CTA Click", type: "event", target: "cta_click", active: true }],
+			}, storage);
+			expect(result.length).toBe(1);
+			expect(result[0].completions).toBe(3);
+			expect(result[0].visitors).toBe(2);
+			expect(result[0].conversionRate).toBe(4);
+		});
+
+		it("computes configured form goal", async () => {
+			const events = [
+				{ name: "form_submit", pathname: "/p", props: { form: "newsletter" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "form_submit", pathname: "/p", props: { form: "newsletter" }, visitorId: "v2", createdAt: "2026-04-02T12:00:00.000Z" },
+				{ name: "form_submit", pathname: "/p", props: { form: "contact" }, visitorId: "v3", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getGoals({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				totalVisitors: 100,
+				goals: [{ id: "g1", name: "Newsletter", type: "form", target: "newsletter", active: true }],
+			}, storage);
+			expect(result.length).toBe(1);
+			expect(result[0].completions).toBe(2);
+			expect(result[0].visitors).toBe(2);
+		});
+
+		it("computes configured page goal from daily_stats", async () => {
+			const stats = [
+				makeDailyStats({ pathname: "/thank-you", date: "2026-04-01", views: 10, visitors: ["v1", "v2", "v3"] }),
+				makeDailyStats({ pathname: "/thank-you", date: "2026-04-02", views: 5, visitors: ["v1", "v4"] }),
+			];
+			const storage = makeStorage(stats, []);
+			const result = await backend.getGoals({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				totalVisitors: 200,
+				goals: [{ id: "g1", name: "Thank You", type: "page", target: "/thank-you", active: true }],
+			}, storage);
+			expect(result.length).toBe(1);
+			expect(result[0].completions).toBe(15);
+			expect(result[0].visitors).toBe(4); // v1, v2, v3, v4 (v1 deduplicated)
+		});
+
+		it("filters out goals with zero completions", async () => {
+			const storage = makeStorage([], []);
+			const result = await backend.getGoals({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				totalVisitors: 100,
+				goals: [{ id: "g1", name: "Empty", type: "event", target: "nonexistent", active: true }],
+			}, storage);
+			expect(result).toEqual([]);
+		});
+
+		it("skips inactive goals", async () => {
+			const events = [
+				{ name: "signup", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getGoals({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				totalVisitors: 100,
+				goals: [{ id: "g1", name: "Disabled", type: "event", target: "signup", active: false }],
+			}, storage);
+			expect(result).toEqual([]);
+		});
+	});
 });
 
 // ─── Reporting service ─────────────────────────────────────────────────────
@@ -569,11 +681,21 @@ describe("reporting service", () => {
 
 	it("getPropertyBreakdownsReport delegates to backend", async () => {
 		const mockResult = { plan: { pro: 5, free: 3 } };
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn().mockResolvedValue(mockResult) };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn().mockResolvedValue(mockResult), getGoals: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getPropertyBreakdownsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" }, storage);
 
 		expect(mockBackend.getPropertyBreakdowns).toHaveBeenCalled();
+		expect(result).toEqual(mockResult);
+	});
+
+	it("getGoalsReport delegates to backend", async () => {
+		const mockResult = [{ goal: "Signup", completions: 10, visitors: 5, conversionRate: 5 }];
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn(), getGoals: vi.fn().mockResolvedValue(mockResult) };
+		const storage = makeStorage([]);
+		const result = await getGoalsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100, goals: [] }, storage);
+
+		expect(mockBackend.getGoals).toHaveBeenCalled();
 		expect(result).toEqual(mockResult);
 	});
 });

@@ -405,6 +405,68 @@ describe("CloudflareIngestionBackend", () => {
 	});
 
 	// -----------------------------------------------------------------------
+	// D1: visitor tracking → daily_custom_event_visitors + daily_form_visitors
+	// -----------------------------------------------------------------------
+
+	it("writes custom event visitor to D1 daily_custom_event_visitors", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({
+			type: "custom",
+			eventName: "signup",
+			visitorId: "v-abc",
+		}), storage);
+
+		const table = d1._tables.get("daily_custom_event_visitors");
+		expect(table).toBeDefined();
+		expect(table!.rows.length).toBe(1);
+		expect(table!.rows[0].event_name).toBe("signup");
+		expect(table!.rows[0].visitor_id).toBe("v-abc");
+	});
+
+	it("deduplicates custom event visitors per date+event", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "custom", eventName: "signup", visitorId: "v-abc" }), storage);
+		await backend.ingest(makeEvent({ type: "custom", eventName: "signup", visitorId: "v-abc" }), storage);
+		await backend.ingest(makeEvent({ type: "custom", eventName: "signup", visitorId: "v-def" }), storage);
+
+		const table = d1._tables.get("daily_custom_event_visitors");
+		expect(table!.rows.length).toBe(2);
+	});
+
+	it("writes form visitor to D1 daily_form_visitors", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({
+			type: "custom",
+			eventName: "form_submit",
+			eventProps: '{"form":"newsletter"}',
+			visitorId: "v-abc",
+		}), storage);
+
+		const table = d1._tables.get("daily_form_visitors");
+		expect(table).toBeDefined();
+		expect(table!.rows.length).toBe(1);
+		expect(table!.rows[0].form_name).toBe("newsletter");
+		expect(table!.rows[0].visitor_id).toBe("v-abc");
+	});
+
+	it("deduplicates form visitors per date+form", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "custom", eventName: "form_submit", eventProps: '{"form":"contact"}', visitorId: "v-abc" }), storage);
+		await backend.ingest(makeEvent({ type: "custom", eventName: "form_submit", eventProps: '{"form":"contact"}', visitorId: "v-abc" }), storage);
+
+		const table = d1._tables.get("daily_form_visitors");
+		expect(table!.rows.length).toBe(1);
+	});
+
+	// -----------------------------------------------------------------------
 	// D1: custom event props → daily_custom_event_props table
 	// -----------------------------------------------------------------------
 

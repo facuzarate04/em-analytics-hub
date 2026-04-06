@@ -16,13 +16,15 @@ import type {
 	DetectedFormsQuery,
 	PropertyBreakdownsQuery,
 	PropertyBreakdownsReport,
+	GoalsQuery,
 } from "../../reporting/types.js";
-import type { CustomEvent } from "../../types.js";
+import type { CustomEvent, GoalMetricRow } from "../../types.js";
 import type { StorageCollection } from "../../storage/queries.js";
 import { queryStatsForRange } from "../../storage/stats.js";
 import { aggregateStats } from "../../helpers/aggregation.js";
 import { aggregateCampaignIntelligence } from "../../helpers/campaign-intelligence.js";
 import { queryCustomEvents, aggregateCustomEvents, aggregateCustomEventTrends, aggregateCustomEventProperties } from "../../storage/custom-events.js";
+import { aggregateGoals, isAutoGoalCandidate } from "../../helpers/goals.js";
 
 function pct(part: number, total: number): number {
 	return total > 0 ? Math.round((part / total) * 100) : 0;
@@ -177,5 +179,78 @@ export class PortableReportingBackend implements AnalyticsReportingBackend {
 		}
 
 		return result;
+	}
+
+	async getGoals(query: GoalsQuery, storage: ReportingStorage): Promise<GoalMetricRow[]> {
+		const { dateFrom, dateTo, totalVisitors, goals } = query;
+
+		const customEvents = await queryCustomEvents(
+			storage.custom_events as StorageCollection<CustomEvent>,
+			dateFrom,
+			dateTo,
+		);
+
+		// Auto-detect mode — delegate to existing helper
+		if (goals.length === 0) {
+			return aggregateGoals(customEvents, totalVisitors);
+		}
+
+		// Configured goals — page goals use daily_stats, event/form goals use custom_events
+		const statsItems = await queryStatsForRange(storage.daily_stats, dateFrom, dateTo);
+		const statsAgg = aggregateStats(statsItems);
+
+		const rows: GoalMetricRow[] = [];
+
+		for (const goal of goals.filter((g) => g.active)) {
+			if (goal.type === "page") {
+				const pageData = statsAgg.byPathname.get(goal.target);
+				const completions = pageData?.views ?? 0;
+				const visitors = pageData?.visitors.size ?? 0;
+				rows.push({
+					goal: goal.name,
+					completions,
+					visitors,
+					conversionRate: totalVisitors > 0 ? Math.round((visitors / totalVisitors) * 100) : 0,
+				});
+			} else if (goal.type === "event") {
+				let completions = 0;
+				const visitorSet = new Set<string>();
+				for (const item of customEvents) {
+					if (item.data.name === goal.target) {
+						completions++;
+						if (item.data.visitorId) visitorSet.add(item.data.visitorId);
+					}
+				}
+				rows.push({
+					goal: goal.name,
+					completions,
+					visitors: visitorSet.size,
+					conversionRate: totalVisitors > 0 ? Math.round((visitorSet.size / totalVisitors) * 100) : 0,
+				});
+			} else if (goal.type === "form") {
+				let completions = 0;
+				const visitorSet = new Set<string>();
+				for (const item of customEvents) {
+					const event = item.data;
+					const isSubmit = event.name === "form_submit" || event.name.endsWith("_submit");
+					if (!isSubmit) continue;
+					const formName = String(event.props.form ?? event.props.source ?? event.pathname ?? "");
+					if (formName === goal.target) {
+						completions++;
+						if (event.visitorId) visitorSet.add(event.visitorId);
+					}
+				}
+				rows.push({
+					goal: goal.name,
+					completions,
+					visitors: visitorSet.size,
+					conversionRate: totalVisitors > 0 ? Math.round((visitorSet.size / totalVisitors) * 100) : 0,
+				});
+			}
+		}
+
+		return rows
+			.filter((row) => row.completions > 0)
+			.sort((a, b) => b.completions - a.completions);
 	}
 }

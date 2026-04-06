@@ -1,4 +1,4 @@
-import type { DailyStats, CustomEvent } from "../types.js";
+import type { DailyStats, CustomEvent, GoalDefinition, GoalMetricRow } from "../types.js";
 import type { StorageCollection } from "../storage/queries.js";
 
 export interface ReportingStorage {
@@ -127,6 +127,14 @@ export interface PropertyBreakdownsQuery {
  */
 export type PropertyBreakdownsReport = Record<string, Record<string, number>>;
 
+export interface GoalsQuery {
+	dateFrom: string;
+	dateTo: string;
+	totalVisitors: number;
+	/** Active goal definitions. Empty array = auto-detect goals from event patterns. */
+	goals: GoalDefinition[];
+}
+
 export interface AnalyticsReportingBackend {
 	getStats(query: StatsReportQuery, storage: ReportingStorage): Promise<StatsReport>;
 	getTopPages(query: TopPagesReportQuery, storage: ReportingStorage): Promise<TopPageEntry[]>;
@@ -138,4 +146,6 @@ export interface AnalyticsReportingBackend {
 	getDetectedForms(query: DetectedFormsQuery, storage: ReportingStorage): Promise<string[]>;
 	/** Returns property breakdowns for a specific event: prop_key → { prop_value → count }. */
 	getPropertyBreakdowns(query: PropertyBreakdownsQuery, storage: ReportingStorage): Promise<PropertyBreakdownsReport>;
+	/** Returns goal metric rows. If goals array is empty, auto-detects from event patterns. */
+	getGoals(query: GoalsQuery, storage: ReportingStorage): Promise<GoalMetricRow[]>;
 }

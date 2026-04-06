@@ -23,6 +23,8 @@ async function seedData(db: ReturnType<typeof createMockD1>, data: {
 	customEvents?: Array<{ date: string; event_name: string; count: number }>;
 	formSubmissions?: Array<{ date: string; form_name: string; count: number }>;
 	eventProps?: Array<{ date: string; event_name: string; prop_key: string; prop_value: string; count: number }>;
+	eventVisitors?: Array<{ date: string; event_name: string; visitor_id: string }>;
+	formVisitors?: Array<{ date: string; form_name: string; visitor_id: string }>;
 }) {
 	for (const p of data.pages ?? []) {
 		await db.prepare(
@@ -69,6 +71,16 @@ async function seedData(db: ReturnType<typeof createMockD1>, data: {
 		await db.prepare(
 			`INSERT INTO daily_custom_event_props (date, event_name, prop_key, prop_value, count) VALUES (?, ?, ?, ?, ?)`,
 		).bind(ep.date, ep.event_name, ep.prop_key, ep.prop_value, ep.count).run();
+	}
+	for (const ev of data.eventVisitors ?? []) {
+		await db.prepare(
+			`INSERT OR IGNORE INTO daily_custom_event_visitors (date, event_name, visitor_id) VALUES (?, ?, ?)`,
+		).bind(ev.date, ev.event_name, ev.visitor_id).run();
+	}
+	for (const fv of data.formVisitors ?? []) {
+		await db.prepare(
+			`INSERT OR IGNORE INTO daily_form_visitors (date, form_name, visitor_id) VALUES (?, ?, ?)`,
+		).bind(fv.date, fv.form_name, fv.visitor_id).run();
 	}
 }
 
@@ -739,6 +751,217 @@ describe("CloudflareReportingBackend", () => {
 				dummyStorage,
 			);
 			expect(result.plan).toEqual({ new: 1 });
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// getGoals
+	// -----------------------------------------------------------------------
+
+	describe("getGoals", () => {
+		it("returns empty for no data", async () => {
+			const result = await backend.getGoals(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100, goals: [] },
+				dummyStorage,
+			);
+			expect(result).toEqual([]);
+		});
+
+		// Auto-detect mode
+		describe("auto-detect mode (empty goals array)", () => {
+			it("detects goals from priority event names", async () => {
+				await seedData(db, {
+					customEvents: [
+						{ date: "2026-04-01", event_name: "signup_submit", count: 10 },
+						{ date: "2026-04-01", event_name: "purchase", count: 5 },
+						{ date: "2026-04-01", event_name: "page_click", count: 20 }, // not a goal candidate
+					],
+					eventVisitors: [
+						{ date: "2026-04-01", event_name: "signup_submit", visitor_id: "v1" },
+						{ date: "2026-04-01", event_name: "signup_submit", visitor_id: "v2" },
+						{ date: "2026-04-01", event_name: "purchase", visitor_id: "v1" },
+					],
+				});
+				const result = await backend.getGoals(
+					{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100, goals: [] },
+					dummyStorage,
+				);
+				expect(result.length).toBe(2);
+				expect(result[0].completions).toBe(10);
+				expect(result[0].visitors).toBe(2);
+				expect(result[0].conversionRate).toBe(2);
+				expect(result[1].completions).toBe(5);
+			});
+
+			it("detects *_submit and *_request patterns", async () => {
+				await seedData(db, {
+					customEvents: [
+						{ date: "2026-04-01", event_name: "newsletter_submit", count: 3 },
+						{ date: "2026-04-01", event_name: "demo_request", count: 2 },
+					],
+					eventVisitors: [
+						{ date: "2026-04-01", event_name: "newsletter_submit", visitor_id: "v1" },
+						{ date: "2026-04-01", event_name: "demo_request", visitor_id: "v2" },
+					],
+				});
+				const result = await backend.getGoals(
+					{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 50, goals: [] },
+					dummyStorage,
+				);
+				expect(result.length).toBe(2);
+			});
+
+			it("limits to top 5 auto-detected goals", async () => {
+				await seedData(db, {
+					customEvents: Array.from({ length: 8 }, (_, i) => ({
+						date: "2026-04-01",
+						event_name: `goal_${i}_submit`,
+						count: 10 - i,
+					})),
+				});
+				const result = await backend.getGoals(
+					{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100, goals: [] },
+					dummyStorage,
+				);
+				expect(result.length).toBe(5);
+			});
+		});
+
+		// Configured goals
+		describe("configured goals", () => {
+			it("computes page goal from daily_pages + daily_visitors", async () => {
+				await seedData(db, {
+					pages: [{ date: "2026-04-01", pathname: "/thank-you", views: 15 }],
+					visitors: [
+						{ date: "2026-04-01", pathname: "/thank-you", visitor_id: "v1" },
+						{ date: "2026-04-01", pathname: "/thank-you", visitor_id: "v2" },
+						{ date: "2026-04-01", pathname: "/thank-you", visitor_id: "v3" },
+					],
+				});
+				const result = await backend.getGoals({
+					dateFrom: "2026-04-01",
+					dateTo: "2026-04-07",
+					totalVisitors: 100,
+					goals: [{ id: "g1", name: "Thank You Page", type: "page", target: "/thank-you", active: true }],
+				}, dummyStorage);
+				expect(result.length).toBe(1);
+				expect(result[0].goal).toBe("Thank You Page");
+				expect(result[0].completions).toBe(15);
+				expect(result[0].visitors).toBe(3);
+				expect(result[0].conversionRate).toBe(3);
+			});
+
+			it("computes event goal from daily_custom_events + daily_custom_event_visitors", async () => {
+				await seedData(db, {
+					customEvents: [{ date: "2026-04-01", event_name: "cta_click", count: 8 }],
+					eventVisitors: [
+						{ date: "2026-04-01", event_name: "cta_click", visitor_id: "v1" },
+						{ date: "2026-04-01", event_name: "cta_click", visitor_id: "v2" },
+					],
+				});
+				const result = await backend.getGoals({
+					dateFrom: "2026-04-01",
+					dateTo: "2026-04-07",
+					totalVisitors: 50,
+					goals: [{ id: "g1", name: "CTA Click", type: "event", target: "cta_click", active: true }],
+				}, dummyStorage);
+				expect(result.length).toBe(1);
+				expect(result[0].goal).toBe("CTA Click");
+				expect(result[0].completions).toBe(8);
+				expect(result[0].visitors).toBe(2);
+			});
+
+			it("computes form goal from daily_form_submissions + daily_form_visitors", async () => {
+				await seedData(db, {
+					formSubmissions: [{ date: "2026-04-01", form_name: "newsletter", count: 12 }],
+					formVisitors: [
+						{ date: "2026-04-01", form_name: "newsletter", visitor_id: "v1" },
+						{ date: "2026-04-01", form_name: "newsletter", visitor_id: "v2" },
+						{ date: "2026-04-01", form_name: "newsletter", visitor_id: "v3" },
+						{ date: "2026-04-01", form_name: "newsletter", visitor_id: "v4" },
+					],
+				});
+				const result = await backend.getGoals({
+					dateFrom: "2026-04-01",
+					dateTo: "2026-04-07",
+					totalVisitors: 200,
+					goals: [{ id: "g1", name: "Newsletter Signup", type: "form", target: "newsletter", active: true }],
+				}, dummyStorage);
+				expect(result.length).toBe(1);
+				expect(result[0].goal).toBe("Newsletter Signup");
+				expect(result[0].completions).toBe(12);
+				expect(result[0].visitors).toBe(4);
+				expect(result[0].conversionRate).toBe(2);
+			});
+
+			it("filters out goals with zero completions", async () => {
+				const result = await backend.getGoals({
+					dateFrom: "2026-04-01",
+					dateTo: "2026-04-07",
+					totalVisitors: 100,
+					goals: [{ id: "g1", name: "Empty Goal", type: "event", target: "nonexistent", active: true }],
+				}, dummyStorage);
+				expect(result).toEqual([]);
+			});
+
+			it("skips inactive goals", async () => {
+				await seedData(db, {
+					customEvents: [{ date: "2026-04-01", event_name: "signup", count: 10 }],
+				});
+				const result = await backend.getGoals({
+					dateFrom: "2026-04-01",
+					dateTo: "2026-04-07",
+					totalVisitors: 100,
+					goals: [{ id: "g1", name: "Disabled", type: "event", target: "signup", active: false }],
+				}, dummyStorage);
+				expect(result).toEqual([]);
+			});
+
+			it("sorts by completions descending", async () => {
+				await seedData(db, {
+					customEvents: [
+						{ date: "2026-04-01", event_name: "small", count: 2 },
+						{ date: "2026-04-01", event_name: "big", count: 20 },
+					],
+				});
+				const result = await backend.getGoals({
+					dateFrom: "2026-04-01",
+					dateTo: "2026-04-07",
+					totalVisitors: 100,
+					goals: [
+						{ id: "g1", name: "Small Goal", type: "event", target: "small", active: true },
+						{ id: "g2", name: "Big Goal", type: "event", target: "big", active: true },
+					],
+				}, dummyStorage);
+				expect(result[0].goal).toBe("Big Goal");
+				expect(result[1].goal).toBe("Small Goal");
+			});
+
+			it("handles mixed goal types", async () => {
+				await seedData(db, {
+					pages: [{ date: "2026-04-01", pathname: "/thanks", views: 5 }],
+					visitors: [{ date: "2026-04-01", pathname: "/thanks", visitor_id: "v1" }],
+					customEvents: [{ date: "2026-04-01", event_name: "purchase", count: 3 }],
+					eventVisitors: [{ date: "2026-04-01", event_name: "purchase", visitor_id: "v2" }],
+					formSubmissions: [{ date: "2026-04-01", form_name: "contact", count: 7 }],
+					formVisitors: [{ date: "2026-04-01", form_name: "contact", visitor_id: "v3" }],
+				});
+				const result = await backend.getGoals({
+					dateFrom: "2026-04-01",
+					dateTo: "2026-04-07",
+					totalVisitors: 100,
+					goals: [
+						{ id: "g1", name: "Thanks Page", type: "page", target: "/thanks", active: true },
+						{ id: "g2", name: "Purchase", type: "event", target: "purchase", active: true },
+						{ id: "g3", name: "Contact Form", type: "form", target: "contact", active: true },
+					],
+				}, dummyStorage);
+				expect(result.length).toBe(3);
+				// Sorted by completions: form(7) > page(5) > event(3)
+				expect(result[0].goal).toBe("Contact Form");
+				expect(result[1].goal).toBe("Thanks Page");
+				expect(result[2].goal).toBe("Purchase");
+			});
 		});
 	});
 });

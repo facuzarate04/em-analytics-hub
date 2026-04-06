@@ -44,6 +44,8 @@ export interface D1ExecResult {
 // daily_custom_events — per (date, event_name) custom event counts
 // daily_form_submissions — per (date, form_name) form submission counts
 // daily_custom_event_props — per (date, event_name, prop_key, prop_value) counts
+// daily_custom_event_visitors — per (date, event_name, visitor_id) for unique counting
+// daily_form_visitors — per (date, form_name, visitor_id) for unique counting
 // ---------------------------------------------------------------------------
 
 const SCHEMA_SQL = `
@@ -115,6 +117,20 @@ CREATE TABLE IF NOT EXISTS daily_custom_event_props (
   prop_value TEXT NOT NULL,
   count INTEGER DEFAULT 0,
   PRIMARY KEY (date, event_name, prop_key, prop_value)
+);
+
+CREATE TABLE IF NOT EXISTS daily_custom_event_visitors (
+  date TEXT NOT NULL,
+  event_name TEXT NOT NULL,
+  visitor_id TEXT NOT NULL,
+  PRIMARY KEY (date, event_name, visitor_id)
+);
+
+CREATE TABLE IF NOT EXISTS daily_form_visitors (
+  date TEXT NOT NULL,
+  form_name TEXT NOT NULL,
+  visitor_id TEXT NOT NULL,
+  PRIMARY KEY (date, form_name, visitor_id)
 );
 `;
 

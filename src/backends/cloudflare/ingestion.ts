@@ -253,6 +253,15 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 					).bind(date, truncatedName, 1),
 				);
 
+				// Unique visitor tracking per custom event name (for goals)
+				if (event.visitorId) {
+					stmts.push(
+						db.prepare(
+							`INSERT OR IGNORE INTO daily_custom_event_visitors (date, event_name, visitor_id) VALUES (?, ?, ?)`,
+						).bind(date, truncatedName, event.visitorId),
+					);
+				}
+
 				// Property key/value pairs for property breakdowns
 				const props = parseEventProps(event.eventProps);
 				for (const [key, value] of Object.entries(props)) {
@@ -276,6 +285,15 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 							 ON CONFLICT (date, form_name) DO UPDATE SET count = count + 1`,
 						).bind(date, formName, 1),
 					);
+
+					// Unique visitor tracking per form (for goals)
+					if (event.visitorId) {
+						stmts.push(
+							db.prepare(
+								`INSERT OR IGNORE INTO daily_form_visitors (date, form_name, visitor_id) VALUES (?, ?, ?)`,
+							).bind(date, formName, event.visitorId),
+						);
+					}
 				}
 			}
 			break;
@@ -295,7 +313,6 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 //   - dashboard funnels section (queryRawEvents, gated by isPro)
 //
 // custom_events:
-//   - dashboard goals aggregation  (canViewGoals, Pro)
 //   - dashboard forms analytics    (canViewFormsAnalytics, Pro)
 //
 // NOT read by (already migrated to D1/reporting backend):
@@ -303,13 +320,14 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 //   - custom events listing + trends
 //   - catalog (pages, event names, forms)
 //   - property breakdowns
+//   - goals (all three types: page, event, form)
 //
 // Making writes conditional on license is not viable because:
 //   - handleTrack() has no license info (adding KV read adds latency)
 //   - license can change between write time and read time
 //   - ingestion should remain plan-agnostic
 //
-// To fully eliminate these writes, migrate funnels/goals/forms-analytics
+// To fully eliminate these writes, migrate funnels and forms-analytics
 // to D1 or AE. Each is an independent future slice.
 // ---------------------------------------------------------------------------
 
