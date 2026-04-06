@@ -5,7 +5,7 @@ import {
 } from "../backends/cloudflare/ingestion.js";
 import type { AnalyticsEngineDataset } from "../backends/cloudflare/ingestion.js";
 import type { NormalizedEvent } from "../capture/types.js";
-import type { AnalyticsIngestionBackend, IngestionStorage } from "../ingestion/types.js";
+import type { IngestionStorage } from "../ingestion/types.js";
 import { createMockD1 } from "./helpers/mock-d1.js";
 import { ensureD1Schema, resetD1SchemaFlag } from "../backends/cloudflare/d1.js";
 
@@ -32,11 +32,28 @@ function makeEvent(overrides: Partial<NormalizedEvent> = {}): NormalizedEvent {
 	};
 }
 
-function createMockPortable(): AnalyticsIngestionBackend & { ingest: ReturnType<typeof vi.fn> } {
-	return { ingest: vi.fn().mockResolvedValue(undefined) };
+function createMockStorage(): IngestionStorage {
+	return {
+		events: {
+			get: vi.fn(),
+			put: vi.fn().mockResolvedValue(undefined),
+			query: vi.fn(),
+			deleteMany: vi.fn(),
+		},
+		daily_stats: {
+			get: vi.fn(),
+			put: vi.fn().mockResolvedValue(undefined),
+			query: vi.fn(),
+			deleteMany: vi.fn(),
+		},
+		custom_events: {
+			get: vi.fn(),
+			put: vi.fn().mockResolvedValue(undefined),
+			query: vi.fn(),
+			deleteMany: vi.fn(),
+		},
+	} as any;
 }
-
-const dummyStorage = {} as IngestionStorage;
 
 // ---------------------------------------------------------------------------
 // serializeEvent (pure function)
@@ -98,7 +115,7 @@ describe("serializeEvent", () => {
 });
 
 // ---------------------------------------------------------------------------
-// CloudflareIngestionBackend — triple-write behavior (AE + D1 + portable)
+// CloudflareIngestionBackend — AE + D1 + portable (events/custom_events only)
 // ---------------------------------------------------------------------------
 
 describe("CloudflareIngestionBackend", () => {
@@ -113,10 +130,10 @@ describe("CloudflareIngestionBackend", () => {
 	it("writes to Analytics Engine", async () => {
 		const writeDataPoint = vi.fn();
 		const dataset: AnalyticsEngineDataset = { writeDataPoint };
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend(dataset, d1, portable);
+		const backend = new CloudflareIngestionBackend(dataset, d1);
+		const storage = createMockStorage();
 
-		await backend.ingest(makeEvent(), dummyStorage);
+		await backend.ingest(makeEvent(), storage);
 
 		expect(writeDataPoint).toHaveBeenCalledOnce();
 		const dp = writeDataPoint.mock.calls[0][0];
@@ -124,25 +141,11 @@ describe("CloudflareIngestionBackend", () => {
 		expect(dp.blobs![0]).toBe("/blog/hello");
 	});
 
-	it("delegates to portable backend", async () => {
-		const writeDataPoint = vi.fn();
-		const dataset: AnalyticsEngineDataset = { writeDataPoint };
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend(dataset, d1, portable);
-		const event = makeEvent();
-
-		await backend.ingest(event, dummyStorage);
-
-		expect(portable.ingest).toHaveBeenCalledOnce();
-		expect(portable.ingest).toHaveBeenCalledWith(event, dummyStorage);
-	});
-
 	it("writes pageview to D1 daily_pages", async () => {
-		const writeDataPoint = vi.fn();
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
 
-		await backend.ingest(makeEvent({ type: "pageview" }), dummyStorage);
+		await backend.ingest(makeEvent({ type: "pageview" }), storage);
 
 		const table = d1._tables.get("daily_pages");
 		expect(table).toBeDefined();
@@ -153,11 +156,10 @@ describe("CloudflareIngestionBackend", () => {
 	});
 
 	it("writes pageview visitor to D1 daily_visitors", async () => {
-		const writeDataPoint = vi.fn();
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
 
-		await backend.ingest(makeEvent({ type: "pageview", visitorId: "v-abc" }), dummyStorage);
+		await backend.ingest(makeEvent({ type: "pageview", visitorId: "v-abc" }), storage);
 
 		const visitors = d1._tables.get("daily_visitors");
 		expect(visitors).toBeDefined();
@@ -166,24 +168,22 @@ describe("CloudflareIngestionBackend", () => {
 	});
 
 	it("deduplicates visitors in D1", async () => {
-		const writeDataPoint = vi.fn();
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
 
-		await backend.ingest(makeEvent({ type: "pageview", visitorId: "v-same" }), dummyStorage);
-		await backend.ingest(makeEvent({ type: "pageview", visitorId: "v-same" }), dummyStorage);
+		await backend.ingest(makeEvent({ type: "pageview", visitorId: "v-same" }), storage);
+		await backend.ingest(makeEvent({ type: "pageview", visitorId: "v-same" }), storage);
 
 		const visitors = d1._tables.get("daily_visitors");
 		expect(visitors!.rows.length).toBe(1);
 	});
 
 	it("writes referrer to D1 daily_referrers", async () => {
-		const writeDataPoint = vi.fn();
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
 
-		await backend.ingest(makeEvent({ type: "pageview", referrer: "https://example.com" }), dummyStorage);
-		await backend.ingest(makeEvent({ type: "pageview", referrer: "https://example.com" }), dummyStorage);
+		await backend.ingest(makeEvent({ type: "pageview", referrer: "https://example.com" }), storage);
+		await backend.ingest(makeEvent({ type: "pageview", referrer: "https://example.com" }), storage);
 
 		const referrers = d1._tables.get("daily_referrers");
 		expect(referrers!.rows.length).toBe(1);
@@ -191,11 +191,10 @@ describe("CloudflareIngestionBackend", () => {
 	});
 
 	it("writes country to D1 daily_countries", async () => {
-		const writeDataPoint = vi.fn();
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
 
-		await backend.ingest(makeEvent({ type: "pageview", country: "AR" }), dummyStorage);
+		await backend.ingest(makeEvent({ type: "pageview", country: "AR" }), storage);
 
 		const countries = d1._tables.get("daily_countries");
 		expect(countries!.rows.length).toBe(1);
@@ -204,16 +203,15 @@ describe("CloudflareIngestionBackend", () => {
 	});
 
 	it("writes UTM campaigns to D1 daily_campaigns", async () => {
-		const writeDataPoint = vi.fn();
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
 
 		await backend.ingest(makeEvent({
 			type: "pageview",
 			utmSource: "twitter",
 			utmMedium: "social",
 			utmCampaign: "launch",
-		}), dummyStorage);
+		}), storage);
 
 		const campaigns = d1._tables.get("daily_campaigns");
 		expect(campaigns!.rows.length).toBe(3);
@@ -230,26 +228,22 @@ describe("CloudflareIngestionBackend", () => {
 	});
 
 	it("writes scroll event to D1", async () => {
-		const writeDataPoint = vi.fn();
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
 
-		// First create the page row with a pageview
-		await backend.ingest(makeEvent({ type: "pageview" }), dummyStorage);
-		// Then scroll
-		await backend.ingest(makeEvent({ type: "scroll", scrollDepth: 50 }), dummyStorage);
+		await backend.ingest(makeEvent({ type: "pageview" }), storage);
+		await backend.ingest(makeEvent({ type: "scroll", scrollDepth: 50 }), storage);
 
 		const pages = d1._tables.get("daily_pages");
 		expect(pages!.rows[0].scroll50).toBe(1);
 	});
 
 	it("writes ping event to D1 (time tracking)", async () => {
-		const writeDataPoint = vi.fn();
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
 
-		await backend.ingest(makeEvent({ type: "pageview" }), dummyStorage);
-		await backend.ingest(makeEvent({ type: "ping", seconds: 30 }), dummyStorage);
+		await backend.ingest(makeEvent({ type: "pageview" }), storage);
+		await backend.ingest(makeEvent({ type: "ping", seconds: 30 }), storage);
 
 		const pages = d1._tables.get("daily_pages");
 		expect(pages!.rows[0].time_total).toBe(30);
@@ -257,61 +251,92 @@ describe("CloudflareIngestionBackend", () => {
 	});
 
 	it("writes read event to D1", async () => {
-		const writeDataPoint = vi.fn();
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
 
-		await backend.ingest(makeEvent({ type: "pageview" }), dummyStorage);
-		await backend.ingest(makeEvent({ type: "read" }), dummyStorage);
+		await backend.ingest(makeEvent({ type: "pageview" }), storage);
+		await backend.ingest(makeEvent({ type: "read" }), storage);
 
 		const pages = d1._tables.get("daily_pages");
 		expect(pages!.rows[0].reads).toBe(1);
 	});
 
 	it("writes engaged event to D1", async () => {
-		const writeDataPoint = vi.fn();
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
 
-		await backend.ingest(makeEvent({ type: "pageview" }), dummyStorage);
-		await backend.ingest(makeEvent({ type: "engaged" }), dummyStorage);
+		await backend.ingest(makeEvent({ type: "pageview" }), storage);
+		await backend.ingest(makeEvent({ type: "engaged" }), storage);
 
 		const pages = d1._tables.get("daily_pages");
 		expect(pages!.rows[0].engaged_views).toBe(1);
 	});
 
 	it("writes recirc event to D1", async () => {
-		const writeDataPoint = vi.fn();
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
 
-		await backend.ingest(makeEvent({ type: "pageview" }), dummyStorage);
-		await backend.ingest(makeEvent({ type: "recirc" }), dummyStorage);
+		await backend.ingest(makeEvent({ type: "pageview" }), storage);
+		await backend.ingest(makeEvent({ type: "recirc" }), storage);
 
 		const pages = d1._tables.get("daily_pages");
 		expect(pages!.rows[0].recircs).toBe(1);
 	});
 
-	it("triple-writes: AE + D1 + portable all receive the event", async () => {
-		const writeDataPoint = vi.fn();
-		const portable = createMockPortable();
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
+	// -----------------------------------------------------------------------
+	// Portable storage: events + custom_events written, daily_stats NOT written
+	// -----------------------------------------------------------------------
 
-		await backend.ingest(makeEvent({ type: "pageview" }), dummyStorage);
+	it("writes to portable events storage", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
 
-		expect(writeDataPoint).toHaveBeenCalledOnce();
-		expect(portable.ingest).toHaveBeenCalledOnce();
-		expect(d1._tables.get("daily_pages")!.rows.length).toBe(1);
+		await backend.ingest(makeEvent({ type: "pageview" }), storage);
+
+		expect(storage.events.put).toHaveBeenCalledOnce();
+	});
+
+	it("writes to portable custom_events for custom event type", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({
+			type: "custom",
+			eventName: "signup",
+			eventProps: '{"plan":"pro"}',
+		}), storage);
+
+		expect(storage.events.put).toHaveBeenCalledOnce();
+		expect(storage.custom_events.put).toHaveBeenCalledOnce();
+	});
+
+	it("does NOT write to portable custom_events for non-custom events", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "pageview" }), storage);
+
+		expect(storage.custom_events.put).not.toHaveBeenCalled();
+	});
+
+	it("does NOT write to portable daily_stats", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "pageview" }), storage);
+		await backend.ingest(makeEvent({ type: "scroll", scrollDepth: 50 }), storage);
+		await backend.ingest(makeEvent({ type: "ping", seconds: 30 }), storage);
+		await backend.ingest(makeEvent({ type: "custom", eventName: "click", eventProps: "{}" }), storage);
+
+		expect(storage.daily_stats.put).not.toHaveBeenCalled();
+		expect(storage.daily_stats.query).not.toHaveBeenCalled();
+		expect(storage.daily_stats.get).not.toHaveBeenCalled();
 	});
 
 	it("writes in order: AE → D1 → portable", async () => {
 		const callOrder: string[] = [];
 		const writeDataPoint = vi.fn(() => callOrder.push("ae"));
-		const portable: AnalyticsIngestionBackend = {
-			ingest: vi.fn(async () => { callOrder.push("portable"); }),
-		};
 
-		// Wrap D1 batch to track order
 		const origBatch = d1.batch.bind(d1);
 		d1.batch = async (stmts) => {
 			const result = await origBatch(stmts);
@@ -319,8 +344,15 @@ describe("CloudflareIngestionBackend", () => {
 			return result;
 		};
 
-		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1, portable);
-		await backend.ingest(makeEvent(), dummyStorage);
+		const storage = createMockStorage();
+		const origEventsPut = storage.events.put;
+		(storage.events as any).put = vi.fn(async (...args: any[]) => {
+			await (origEventsPut as any)(...args);
+			callOrder.push("portable");
+		});
+
+		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1);
+		await backend.ingest(makeEvent(), storage);
 
 		expect(callOrder).toEqual(["ae", "d1", "portable"]);
 	});

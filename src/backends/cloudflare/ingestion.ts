@@ -3,6 +3,9 @@ import type { AnalyticsIngestionBackend, IngestionStorage } from "../../ingestio
 import type { D1Database, D1PreparedStatement } from "./d1.js";
 import { ensureD1Schema } from "./d1.js";
 import { today } from "../../helpers/date.js";
+import { MAX_EVENT_NAME_LENGTH, MAX_CUSTOM_EVENT_PROPS } from "../../constants.js";
+import { writeEvent } from "../../storage/events.js";
+import { writeCustomEvent } from "../../storage/custom-events.js";
 
 /**
  * Minimal typed interface for the Cloudflare Analytics Engine dataset binding.
@@ -205,6 +208,48 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 }
 
 // ---------------------------------------------------------------------------
+// Portable legacy writer — events + custom_events only (no daily_stats)
+// ---------------------------------------------------------------------------
+
+function parseEventProps(raw: string): Record<string, string | number | boolean> {
+	if (!raw) return {};
+	try {
+		const parsed = JSON.parse(raw);
+		if (typeof parsed === "object" && parsed !== null) {
+			const entries = Object.entries(parsed).slice(0, MAX_CUSTOM_EVENT_PROPS);
+			return Object.fromEntries(entries) as Record<string, string | number | boolean>;
+		}
+	} catch {
+		// invalid JSON
+	}
+	return {};
+}
+
+/**
+ * Writes only raw events and custom events to portable storage.
+ * Skips daily_stats entirely — D1 handles aggregated reporting in CF mode.
+ *
+ * These writes are still needed because:
+ * - events: read by Pro funnels section (queryRawEvents)
+ * - custom_events: read by Pro funnels, Custom Events section, and catalog
+ *
+ * Once those sections migrate to D1 or AE, this writer can be removed.
+ */
+async function writePortableLegacy(event: NormalizedEvent, storage: IngestionStorage): Promise<void> {
+	await writeEvent(storage.events, event);
+
+	if (event.type === "custom" && event.eventName) {
+		await writeCustomEvent(storage.custom_events, {
+			name: event.eventName.slice(0, MAX_EVENT_NAME_LENGTH),
+			pathname: event.pathname,
+			props: parseEventProps(event.eventProps),
+			visitorId: event.visitorId,
+			createdAt: event.createdAt,
+		});
+	}
+}
+
+// ---------------------------------------------------------------------------
 // CloudflareIngestionBackend
 // ---------------------------------------------------------------------------
 
@@ -212,32 +257,17 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
  * Ingestion backend that writes to:
  * 1. Cloudflare Analytics Engine (raw event stream, source of truth)
  * 2. D1 (aggregated tables for real-time reporting)
- * 3. Portable storage (TEMPORARY — partial, see below)
+ * 3. Portable storage — events + custom_events only (for legacy Pro sections)
  *
- * Portable write status:
- * - daily_stats: NO LONGER READ in CF mode. Core dashboard, widget, routes,
- *   and catalog all use the reporting backend (which reads from D1).
- *   Kept only because PortableIngestionBackend writes all 3 atomically.
- * - events: READ by Pro funnels section in dashboard (queryRawEvents).
- * - custom_events: READ by Pro funnels, custom events section, and catalog
- *   (queryCustomEvents for counts/trends/properties/forms).
- *
- * To fully remove the portable write, the remaining reads (events,
- * custom_events) need their own reporting backend methods or D1 tables.
+ * Does NOT write to portable daily_stats. Core reporting reads from D1.
  */
 export class CloudflareIngestionBackend implements AnalyticsIngestionBackend {
 	private readonly dataset: AnalyticsEngineDataset;
 	private readonly d1: D1Database;
-	private readonly portableFallback: AnalyticsIngestionBackend;
 
-	constructor(
-		dataset: AnalyticsEngineDataset,
-		d1: D1Database,
-		portableFallback: AnalyticsIngestionBackend,
-	) {
+	constructor(dataset: AnalyticsEngineDataset, d1: D1Database) {
 		this.dataset = dataset;
 		this.d1 = d1;
-		this.portableFallback = portableFallback;
 	}
 
 	async ingest(event: NormalizedEvent, storage: IngestionStorage): Promise<void> {
@@ -250,8 +280,7 @@ export class CloudflareIngestionBackend implements AnalyticsIngestionBackend {
 		const stmts = buildD1Statements(this.d1, event, date);
 		await this.d1.batch(stmts);
 
-		// 3. TEMPORARY: delegate to portable backend so admin UI stays current
-		// TODO: remove once admin dashboard reads from reporting backend
-		await this.portableFallback.ingest(event, storage);
+		// 3. Write raw events + custom events to portable storage (legacy reads)
+		await writePortableLegacy(event, storage);
 	}
 }

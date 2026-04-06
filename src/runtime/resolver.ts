@@ -31,13 +31,11 @@ function buildPortableRuntime(): AnalyticsRuntime {
 function buildCloudflareRuntime(bindings: CloudflareBindings): AnalyticsRuntime {
 	const dataset = bindings.analyticsEngine as AnalyticsEngineDataset;
 	const d1 = bindings.d1 as D1Database;
-	const portableIngestion = new PortableIngestionBackend();
 	return {
 		id: "cloudflare",
-		// Triple-write: AE + D1 + portable storage
-		// Portable delegation is temporary — admin UI still reads ctx.storage directly.
-		// Once admin dashboard migrates to reporting backend, portable can be removed.
-		ingestion: new CloudflareIngestionBackend(dataset, d1, portableIngestion),
+		// Writes: AE (source of truth) + D1 (aggregated reporting) + portable events/custom_events (legacy Pro reads)
+		// daily_stats is NOT written — core reporting reads from D1 exclusively.
+		ingestion: new CloudflareIngestionBackend(dataset, d1),
 		// D1-backed reporting — reads from tables populated by ingestion above
 		reporting: new CloudflareReportingBackend(d1),
 	};
