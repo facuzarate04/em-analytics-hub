@@ -71,9 +71,31 @@ export interface CampaignsReport {
 	campaigns: Array<{ name: string; count: number }>;
 }
 
+export type CampaignIntelligenceDimension = "source" | "medium" | "campaign";
+
+export interface CampaignIntelligenceQuery {
+	dateFrom: string;
+	dateTo: string;
+	dimension: CampaignIntelligenceDimension;
+}
+
+export interface CampaignIntelligenceEntry {
+	name: string;
+	views: number;
+	visitors: number;
+	reads: number;
+	readRate: number;
+	engagedViews: number;
+	engagedRate: number;
+	avgTimeSeconds: number;
+	recircs: number;
+	recircRate: number;
+}
+
 export interface AnalyticsReportingBackend {
 	getStats(query: StatsReportQuery, storage: ReportingStorage): Promise<StatsReport>;
 	getTopPages(query: TopPagesReportQuery, storage: ReportingStorage): Promise<TopPageEntry[]>;
 	getReferrers(query: ReferrersReportQuery, storage: ReportingStorage): Promise<ReferrerEntry[]>;
 	getCampaigns(query: CampaignsReportQuery, storage: ReportingStorage): Promise<CampaignsReport>;
+	getCampaignIntelligence(query: CampaignIntelligenceQuery, storage: ReportingStorage): Promise<CampaignIntelligenceEntry[]>;
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PortableReportingBackend } from "../backends/portable/reporting.js";
-import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport } from "../reporting/service.js";
+import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport } from "../reporting/service.js";
 import type { ReportingStorage } from "../reporting/types.js";
 import type { DailyStats } from "../types.js";
 import { normalizeDailyStats } from "../helpers/aggregation.js";
@@ -273,13 +273,59 @@ describe("PortableReportingBackend", () => {
 			expect(report.campaigns[0]).toEqual({ name: "launch", count: 2 });
 		});
 	});
+
+	describe("getCampaignIntelligence", () => {
+		it("returns empty for no data", async () => {
+			const storage = makeStorage([]);
+			const result = await backend.getCampaignIntelligence({ dateFrom: "2026-04-01", dateTo: "2026-04-07", dimension: "source" }, storage);
+
+			expect(result).toEqual([]);
+		});
+
+		it("returns source-level metrics sorted by views", async () => {
+			const storage = makeStorage([
+				makeDailyStats({
+					views: 100,
+					visitors: ["a", "b"],
+					reads: 40,
+					engagedViews: 20,
+					recircs: 5,
+					utmSources: { twitter: 60, newsletter: 40 },
+				}),
+			]);
+			const result = await backend.getCampaignIntelligence({ dateFrom: "2026-04-01", dateTo: "2026-04-07", dimension: "source" }, storage);
+
+			expect(result.length).toBe(2);
+			expect(result[0].name).toBe("twitter");
+			expect(result[0].views).toBe(60);
+			expect(result[1].name).toBe("newsletter");
+			expect(result[1].views).toBe(40);
+		});
+
+		it("computes proportional engagement metrics", async () => {
+			const storage = makeStorage([
+				makeDailyStats({
+					views: 100,
+					visitors: ["a"],
+					reads: 50,
+					engagedViews: 30,
+					utmSources: { twitter: 100 },
+				}),
+			]);
+			const result = await backend.getCampaignIntelligence({ dateFrom: "2026-04-01", dateTo: "2026-04-07", dimension: "source" }, storage);
+
+			expect(result[0].reads).toBe(50);
+			expect(result[0].readRate).toBe(50);
+			expect(result[0].engagedViews).toBe(30);
+		});
+	});
 });
 
 // ─── Reporting service ─────────────────────────────────────────────────────
 
 describe("reporting service", () => {
 	it("getStatsReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn().mockResolvedValue({ views: 42 }), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn() };
+		const mockBackend = { getStats: vi.fn().mockResolvedValue({ views: 42 }), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getStatsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07" }, storage);
 
@@ -288,7 +334,7 @@ describe("reporting service", () => {
 	});
 
 	it("getTopPagesReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn().mockResolvedValue([]), getReferrers: vi.fn(), getCampaigns: vi.fn() };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn().mockResolvedValue([]), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getTopPagesReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
 
@@ -297,7 +343,7 @@ describe("reporting service", () => {
 	});
 
 	it("getReferrersReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn().mockResolvedValue([]), getCampaigns: vi.fn() };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn().mockResolvedValue([]), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getReferrersReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 20 }, storage);
 
@@ -306,11 +352,20 @@ describe("reporting service", () => {
 	});
 
 	it("getCampaignsReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn().mockResolvedValue({ sources: [], mediums: [], campaigns: [] }) };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn().mockResolvedValue({ sources: [], mediums: [], campaigns: [] }), getCampaignIntelligence: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getCampaignsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07" }, storage);
 
 		expect(mockBackend.getCampaigns).toHaveBeenCalled();
 		expect(result).toEqual({ sources: [], mediums: [], campaigns: [] });
+	});
+
+	it("getCampaignIntelligenceReport delegates to backend", async () => {
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn().mockResolvedValue([]) };
+		const storage = makeStorage([]);
+		const result = await getCampaignIntelligenceReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", dimension: "source" }, storage);
+
+		expect(mockBackend.getCampaignIntelligence).toHaveBeenCalled();
+		expect(result).toEqual([]);
 	});
 });

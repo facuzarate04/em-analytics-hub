@@ -6,10 +6,7 @@ import type { PluginContext, RouteContext } from "emdash";
 import { today, dateNDaysAgo } from "../helpers/date.js";
 import { getLicense, getMaxDateRange } from "../license/features.js";
 import { getReferrersReport } from "../reporting/service.js";
-import type { ReportingStorage } from "../reporting/types.js";
-import { PortableReportingBackend } from "../backends/portable/reporting.js";
-
-const backend = new PortableReportingBackend();
+import { reportingBackend, reportingStorage } from "../reporting/backend.js";
 
 export async function handleReferrers(
 	routeCtx: RouteContext,
@@ -27,15 +24,11 @@ export async function handleReferrers(
 		50,
 	);
 
-	const storage: ReportingStorage = {
-		daily_stats: ctx.storage.daily_stats as ReportingStorage["daily_stats"],
-	};
-
-	const referrers = await getReferrersReport(backend, {
+	const referrers = await getReferrersReport(reportingBackend, {
 		dateFrom: dateNDaysAgo(days),
 		dateTo: today(),
 		limit,
-	}, storage);
+	}, reportingStorage(ctx));
 
 	return { referrers, plan: license.plan };
 }

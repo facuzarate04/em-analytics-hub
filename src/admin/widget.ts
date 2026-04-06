@@ -4,57 +4,44 @@
 
 import type { PluginContext } from "emdash";
 import type { LicenseCache } from "../types.js";
-import { today, dateNDaysAgo } from "../helpers/date.js";
+import { dateNDaysAgo, today } from "../helpers/date.js";
 import { formatNumber, calculateTrend } from "../helpers/format.js";
-import { queryStatsForRange } from "../storage/stats.js";
-import { aggregateStats } from "../helpers/aggregation.js";
 import { statsBlock, tableBlock } from "./components.js";
+import { getStatsReport, getTopPagesReport } from "../reporting/service.js";
+import { reportingBackend, reportingStorage } from "../reporting/backend.js";
 
-/**
- * Builds the Site Overview dashboard widget.
- * Shows views + visitors (7d) with trends and top 5 pages.
- */
 export async function buildWidget(
 	ctx: PluginContext,
 	_license: LicenseCache,
 ): Promise<Record<string, unknown>> {
-	const items = await queryStatsForRange(
-		ctx.storage.daily_stats as any,
-		dateNDaysAgo(7),
-		today(),
-	);
-	const agg = aggregateStats(items);
+	const storage = reportingStorage(ctx);
+	const backend = reportingBackend;
 
-	const prevItems = await queryStatsForRange(
-		ctx.storage.daily_stats as any,
-		dateNDaysAgo(14),
-		dateNDaysAgo(8),
-	);
-	const prevAgg = aggregateStats(prevItems);
+	const [report, prevReport, topPages] = await Promise.all([
+		getStatsReport(backend, { dateFrom: dateNDaysAgo(7), dateTo: today() }, storage),
+		getStatsReport(backend, { dateFrom: dateNDaysAgo(14), dateTo: dateNDaysAgo(8) }, storage),
+		getTopPagesReport(backend, { dateFrom: dateNDaysAgo(7), dateTo: today(), limit: 5 }, storage),
+	]);
 
-	const viewsTrend = calculateTrend(agg.totalViews, prevAgg.totalViews);
-	const visitorsTrend = calculateTrend(agg.totalVisitors, prevAgg.totalVisitors);
+	const viewsTrend = calculateTrend(report.views, prevReport.views);
+	const visitorsTrend = calculateTrend(report.visitors, prevReport.visitors);
 
-	const topPages = Array.from(agg.byPathname.entries())
-		.map(([pathname, data]) => ({
-			page: pathname,
-			views: formatNumber(data.views),
-			_sort: data.views,
-		}))
-		.sort((a, b) => b._sort - a._sort)
-		.slice(0, 5);
+	const pageRows = topPages.map((p) => ({
+		page: p.pathname,
+		views: formatNumber(p.views),
+	}));
 
 	return {
 		blocks: [
 			statsBlock([
 				{
 					label: "Views (7d)",
-					value: formatNumber(agg.totalViews),
+					value: formatNumber(report.views),
 					...viewsTrend,
 				},
 				{
 					label: "Visitors (7d)",
-					value: formatNumber(agg.totalVisitors),
+					value: formatNumber(report.visitors),
 					...visitorsTrend,
 				},
 			]),
@@ -63,7 +50,7 @@ export async function buildWidget(
 					{ key: "page", label: "Page" },
 					{ key: "views", label: "Views" },
 				],
-				topPages,
+				pageRows,
 			),
 		],
 	};

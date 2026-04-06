@@ -9,9 +9,12 @@ import type {
 	ReferrerEntry,
 	CampaignsReportQuery,
 	CampaignsReport,
+	CampaignIntelligenceQuery,
+	CampaignIntelligenceEntry,
 } from "../../reporting/types.js";
 import { queryStatsForRange } from "../../storage/stats.js";
 import { aggregateStats } from "../../helpers/aggregation.js";
+import { aggregateCampaignIntelligence } from "../../helpers/campaign-intelligence.js";
 
 function pct(part: number, total: number): number {
 	return total > 0 ? Math.round((part / total) * 100) : 0;
@@ -95,5 +98,10 @@ export class PortableReportingBackend implements AnalyticsReportingBackend {
 			mediums: sortedEntries(agg.utmMediums, 20),
 			campaigns: sortedEntries(agg.utmCampaigns, 20),
 		};
+	}
+
+	async getCampaignIntelligence(query: CampaignIntelligenceQuery, storage: ReportingStorage): Promise<CampaignIntelligenceEntry[]> {
+		const items = await queryStatsForRange(storage.daily_stats, query.dateFrom, query.dateTo);
+		return aggregateCampaignIntelligence(items, query.dimension);
 	}
 }

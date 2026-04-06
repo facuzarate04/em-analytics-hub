@@ -9,6 +9,8 @@ import type {
 	ReferrerEntry,
 	CampaignsReportQuery,
 	CampaignsReport,
+	CampaignIntelligenceQuery,
+	CampaignIntelligenceEntry,
 } from "./types.js";
 
 export async function getStatsReport(
@@ -41,4 +43,12 @@ export async function getCampaignsReport(
 	storage: ReportingStorage,
 ): Promise<CampaignsReport> {
 	return backend.getCampaigns(query, storage);
+}
+
+export async function getCampaignIntelligenceReport(
+	backend: AnalyticsReportingBackend,
+	query: CampaignIntelligenceQuery,
+	storage: ReportingStorage,
+): Promise<CampaignIntelligenceEntry[]> {
+	return backend.getCampaignIntelligence(query, storage);
 }

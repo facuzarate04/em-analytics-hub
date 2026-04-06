@@ -6,10 +6,7 @@ import type { PluginContext, RouteContext } from "emdash";
 import { today, dateNDaysAgo } from "../helpers/date.js";
 import { getLicense, hasFeature, getMaxDateRange } from "../license/features.js";
 import { getStatsReport } from "../reporting/service.js";
-import type { ReportingStorage } from "../reporting/types.js";
-import { PortableReportingBackend } from "../backends/portable/reporting.js";
-
-const backend = new PortableReportingBackend();
+import { reportingBackend, reportingStorage } from "../reporting/backend.js";
 
 export async function handleStats(
 	routeCtx: RouteContext,
@@ -24,15 +21,11 @@ export async function handleStats(
 		maxDays,
 	);
 
-	const storage: ReportingStorage = {
-		daily_stats: ctx.storage.daily_stats as ReportingStorage["daily_stats"],
-	};
-
-	const report = await getStatsReport(backend, {
+	const report = await getStatsReport(reportingBackend, {
 		dateFrom: dateNDaysAgo(days),
 		dateTo: today(),
 		pathname,
-	}, storage);
+	}, reportingStorage(ctx));
 
 	const response: Record<string, unknown> = {
 		plan: license.plan,

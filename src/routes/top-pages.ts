@@ -6,11 +6,8 @@ import type { PluginContext, RouteContext } from "emdash";
 import { today, dateNDaysAgo } from "../helpers/date.js";
 import { getLicense, getMaxDateRange } from "../license/features.js";
 import { getTopPagesReport } from "../reporting/service.js";
-import type { ReportingStorage } from "../reporting/types.js";
-import { PortableReportingBackend } from "../backends/portable/reporting.js";
+import { reportingBackend, reportingStorage } from "../reporting/backend.js";
 import { MAX_TOP_PAGES, DEFAULT_TOP_PAGES_LIMIT } from "../constants.js";
-
-const backend = new PortableReportingBackend();
 
 export async function handleTopPages(
 	routeCtx: RouteContext,
@@ -28,15 +25,11 @@ export async function handleTopPages(
 		MAX_TOP_PAGES,
 	);
 
-	const storage: ReportingStorage = {
-		daily_stats: ctx.storage.daily_stats as ReportingStorage["daily_stats"],
-	};
-
-	const pages = await getTopPagesReport(backend, {
+	const pages = await getTopPagesReport(reportingBackend, {
 		dateFrom: dateNDaysAgo(days),
 		dateTo: today(),
 		limit,
-	}, storage);
+	}, reportingStorage(ctx));
 
 	return { pages, plan: license.plan };
 }
