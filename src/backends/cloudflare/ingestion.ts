@@ -4,7 +4,6 @@ import type { D1Database, D1PreparedStatement } from "./d1.js";
 import { ensureD1Schema } from "./d1.js";
 import { today } from "../../helpers/date.js";
 import { MAX_EVENT_NAME_LENGTH, MAX_CUSTOM_EVENT_PROPS } from "../../constants.js";
-import { writeEvent } from "../../storage/events.js";
 
 /**
  * Minimal typed interface for the Cloudflare Analytics Engine dataset binding.
@@ -313,58 +312,37 @@ function buildD1Statements(db: D1Database, event: NormalizedEvent, date: string)
 		}
 	}
 
+	// Funnel events — all types except scroll/ping (no funnel relevance)
+	// Stores per-event rows for funnel progression reconstruction.
+	if (event.type !== "scroll" && event.type !== "ping" && event.visitorId) {
+		stmts.push(
+			db.prepare(
+				`INSERT INTO funnel_events (date, visitor_id, created_at, event_type, pathname, event_name, event_props) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			).bind(date, event.visitorId, event.createdAt, event.type, event.pathname, event.eventName, event.eventProps),
+		);
+	}
+
 	return stmts;
-}
-
-// ---------------------------------------------------------------------------
-// Portable legacy writer — events + custom_events only (no daily_stats)
-// ---------------------------------------------------------------------------
-//
-// Remaining portable reads in CF mode:
-//
-// events:
-//   - dashboard funnels section (queryRawEvents, gated by isPro)
-//
-// custom_events:
-//   - NO remaining readers — all migrated to D1/reporting backend
-//   - custom_events write eliminated (see below)
-//
-// Already migrated to D1/reporting backend:
-//   - core dashboard stats, top pages, referrers, campaigns
-//   - custom events listing + trends
-//   - catalog (pages, event names, forms)
-//   - property breakdowns
-//   - goals (all three types: page, event, form)
-//   - forms analytics
-//
-// To fully eliminate portable events writes, migrate funnels to D1/AE.
-// ---------------------------------------------------------------------------
-
-/**
- * Writes raw events to portable storage.
- * Skips daily_stats and custom_events — D1 handles all reporting in CF mode.
- *
- * Only raw events are written for funnels (Pro feature). Once funnels are
- * migrated to D1/AE, this function and the portable events write can be
- * eliminated entirely.
- */
-async function writePortableLegacy(event: NormalizedEvent, storage: IngestionStorage): Promise<void> {
-	await writeEvent(storage.events, event);
 }
 
 // ---------------------------------------------------------------------------
 // CloudflareIngestionBackend
 // ---------------------------------------------------------------------------
+//
+// All portable storage writes have been eliminated in Cloudflare mode.
+// D1 handles all reporting: core stats, custom events, catalog, goals,
+// forms analytics, property breakdowns, and funnels.
+//
+// Portable storage (events, custom_events, daily_stats) is not written to.
+// The storage parameter is accepted for interface compatibility only.
+// ---------------------------------------------------------------------------
 
 /**
  * Ingestion backend that writes to:
  * 1. Cloudflare Analytics Engine (raw event stream, source of truth)
- * 2. D1 (aggregated tables for real-time reporting)
- * 3. Portable storage — events + custom_events only (Pro feature reads)
+ * 2. D1 (aggregated tables + funnel event log for real-time reporting)
  *
- * Does NOT write to portable daily_stats. Core reporting reads from D1.
- * Portable writes cannot be removed until Pro sections (funnels, goals,
- * forms analytics, property breakdowns) are migrated to D1/AE.
+ * Does NOT write to portable storage. All reporting reads from D1.
  */
 export class CloudflareIngestionBackend implements AnalyticsIngestionBackend {
 	private readonly dataset: AnalyticsEngineDataset;
@@ -375,17 +353,14 @@ export class CloudflareIngestionBackend implements AnalyticsIngestionBackend {
 		this.d1 = d1;
 	}
 
-	async ingest(event: NormalizedEvent, storage: IngestionStorage): Promise<void> {
+	async ingest(event: NormalizedEvent, _storage: IngestionStorage): Promise<void> {
 		// 1. Write to Analytics Engine (fire-and-forget, source of truth)
 		this.dataset.writeDataPoint(serializeEvent(event));
 
-		// 2. Write aggregated data to D1 (powers CloudflareReportingBackend)
+		// 2. Write aggregated data + funnel events to D1
 		await ensureD1Schema(this.d1);
 		const date = today();
 		const stmts = buildD1Statements(this.d1, event, date);
 		await this.d1.batch(stmts);
-
-		// 3. Write raw events + custom events to portable storage (legacy reads)
-		await writePortableLegacy(event, storage);
 	}
 }

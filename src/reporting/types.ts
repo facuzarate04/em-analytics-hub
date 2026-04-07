@@ -1,11 +1,14 @@
-import type { DailyStats, CustomEvent, GoalDefinition, GoalMetricRow } from "../types.js";
+import type { DailyStats, CustomEvent, FunnelDefinition, GoalDefinition, GoalMetricRow, RawEvent } from "../types.js";
 import type { FormAnalyticsRow } from "../helpers/forms-analytics.js";
 export type { FormAnalyticsRow } from "../helpers/forms-analytics.js";
+import type { FunnelRow } from "../helpers/funnels.js";
+export type { FunnelRow } from "../helpers/funnels.js";
 import type { StorageCollection } from "../storage/queries.js";
 
 export interface ReportingStorage {
 	daily_stats: StorageCollection<DailyStats>;
 	custom_events: StorageCollection<CustomEvent>;
+	events: StorageCollection<RawEvent>;
 }
 
 export interface StatsReportQuery {
@@ -136,6 +139,17 @@ export interface FormsAnalyticsQuery {
 	limit?: number;
 }
 
+export interface FunnelsQuery {
+	dateFrom: string;
+	dateTo: string;
+	funnels: FunnelDefinition[];
+}
+
+export interface FunnelSet {
+	name: string;
+	rows: FunnelRow[];
+}
+
 export interface GoalsQuery {
 	dateFrom: string;
 	dateTo: string;
@@ -159,4 +173,6 @@ export interface AnalyticsReportingBackend {
 	getGoals(query: GoalsQuery, storage: ReportingStorage): Promise<GoalMetricRow[]>;
 	/** Returns forms analytics rows: per-form submissions, visitors, and submit rate. */
 	getFormsAnalytics(query: FormsAnalyticsQuery, storage: ReportingStorage): Promise<FormAnalyticsRow[]>;
+	/** Returns funnel sets: configured funnels or auto-detected from event patterns. */
+	getFunnels(query: FunnelsQuery, storage: ReportingStorage): Promise<FunnelSet[]>;
 }

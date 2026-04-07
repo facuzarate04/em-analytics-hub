@@ -583,16 +583,99 @@ describe("CloudflareIngestionBackend", () => {
 	});
 
 	// -----------------------------------------------------------------------
-	// Portable storage: events + custom_events written, daily_stats NOT written
+	// D1: funnel_events — per-event log for funnel reconstruction
 	// -----------------------------------------------------------------------
 
-	it("writes to portable events storage", async () => {
+	it("writes funnel event for pageview", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "pageview", visitorId: "v-1", createdAt: "2026-04-06T12:00:00Z" }), storage);
+
+		const table = d1._tables.get("funnel_events");
+		expect(table).toBeDefined();
+		expect(table!.rows.length).toBe(1);
+		expect(table!.rows[0].event_type).toBe("pageview");
+		expect(table!.rows[0].visitor_id).toBe("v-1");
+	});
+
+	it("writes funnel event for custom event", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({
+			type: "custom",
+			eventName: "cta_click",
+			eventProps: '{"source":"header"}',
+			visitorId: "v-2",
+		}), storage);
+
+		const table = d1._tables.get("funnel_events");
+		expect(table).toBeDefined();
+		expect(table!.rows.length).toBe(1);
+		expect(table!.rows[0].event_type).toBe("custom");
+		expect(table!.rows[0].event_name).toBe("cta_click");
+		expect(table!.rows[0].event_props).toBe('{"source":"header"}');
+	});
+
+	it("does NOT write funnel event for scroll", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "scroll", scrollDepth: 50 }), storage);
+
+		const table = d1._tables.get("funnel_events");
+		expect(table?.rows.length ?? 0).toBe(0);
+	});
+
+	it("does NOT write funnel event for ping", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "ping", seconds: 30 }), storage);
+
+		const table = d1._tables.get("funnel_events");
+		expect(table?.rows.length ?? 0).toBe(0);
+	});
+
+	it("does NOT write funnel event without visitorId", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "pageview", visitorId: "" }), storage);
+
+		const table = d1._tables.get("funnel_events");
+		expect(table?.rows.length ?? 0).toBe(0);
+	});
+
+	it("writes funnel events for read, engaged, recirc", async () => {
+		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
+		const storage = createMockStorage();
+
+		await backend.ingest(makeEvent({ type: "read", visitorId: "v-1" }), storage);
+		await backend.ingest(makeEvent({ type: "engaged", visitorId: "v-1" }), storage);
+		await backend.ingest(makeEvent({ type: "recirc", visitorId: "v-1" }), storage);
+
+		const table = d1._tables.get("funnel_events");
+		expect(table).toBeDefined();
+		expect(table!.rows.length).toBe(3);
+		const types = table!.rows.map((r: any) => r.event_type);
+		expect(types).toContain("read");
+		expect(types).toContain("engaged");
+		expect(types).toContain("recirc");
+	});
+
+	// -----------------------------------------------------------------------
+	// Portable storage: NO writes in Cloudflare mode (fully migrated to D1)
+	// -----------------------------------------------------------------------
+
+	it("does NOT write to portable events storage (migrated to D1 funnel_events)", async () => {
 		const backend = new CloudflareIngestionBackend({ writeDataPoint: vi.fn() }, d1);
 		const storage = createMockStorage();
 
 		await backend.ingest(makeEvent({ type: "pageview" }), storage);
 
-		expect(storage.events.put).toHaveBeenCalledOnce();
+		expect(storage.events.put).not.toHaveBeenCalled();
 	});
 
 	it("does NOT write to portable custom_events (migrated to D1)", async () => {
@@ -605,7 +688,6 @@ describe("CloudflareIngestionBackend", () => {
 			eventProps: '{"plan":"pro"}',
 		}), storage);
 
-		expect(storage.events.put).toHaveBeenCalledOnce();
 		expect(storage.custom_events.put).not.toHaveBeenCalled();
 	});
 
@@ -623,7 +705,7 @@ describe("CloudflareIngestionBackend", () => {
 		expect(storage.daily_stats.get).not.toHaveBeenCalled();
 	});
 
-	it("writes in order: AE → D1 → portable", async () => {
+	it("writes in order: AE → D1 (no portable)", async () => {
 		const callOrder: string[] = [];
 		const writeDataPoint = vi.fn(() => callOrder.push("ae"));
 
@@ -635,15 +717,10 @@ describe("CloudflareIngestionBackend", () => {
 		};
 
 		const storage = createMockStorage();
-		const origEventsPut = storage.events.put;
-		(storage.events as any).put = vi.fn(async (...args: any[]) => {
-			await (origEventsPut as any)(...args);
-			callOrder.push("portable");
-		});
 
 		const backend = new CloudflareIngestionBackend({ writeDataPoint }, d1);
 		await backend.ingest(makeEvent(), storage);
 
-		expect(callOrder).toEqual(["ae", "d1", "portable"]);
+		expect(callOrder).toEqual(["ae", "d1"]);
 	});
 });

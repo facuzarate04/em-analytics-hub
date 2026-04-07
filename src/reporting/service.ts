@@ -18,6 +18,8 @@ import type {
 	PropertyBreakdownsReport,
 	GoalsQuery,
 	FormsAnalyticsQuery,
+	FunnelsQuery,
+	FunnelSet,
 } from "./types.js";
 import type { FormAnalyticsRow } from "../helpers/forms-analytics.js";
 import type { GoalMetricRow } from "../types.js";
@@ -100,4 +102,12 @@ export async function getFormsAnalyticsReport(
 	storage: ReportingStorage,
 ): Promise<FormAnalyticsRow[]> {
 	return backend.getFormsAnalytics(query, storage);
+}
+
+export async function getFunnelsReport(
+	backend: AnalyticsReportingBackend,
+	query: FunnelsQuery,
+	storage: ReportingStorage,
+): Promise<FunnelSet[]> {
+	return backend.getFunnels(query, storage);
 }

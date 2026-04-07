@@ -10,5 +10,6 @@ export function reportingStorage(ctx: PluginContext): ReportingStorage {
 	return {
 		daily_stats: ctx.storage.daily_stats as ReportingStorage["daily_stats"],
 		custom_events: ctx.storage.custom_events as ReportingStorage["custom_events"],
+		events: ctx.storage.events as ReportingStorage["events"],
 	};
 }

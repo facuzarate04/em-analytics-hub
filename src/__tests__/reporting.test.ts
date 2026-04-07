@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PortableReportingBackend } from "../backends/portable/reporting.js";
-import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport, getCustomEventsReport, getDetectedFormsReport, getPropertyBreakdownsReport, getGoalsReport, getFormsAnalyticsReport } from "../reporting/service.js";
+import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport, getCustomEventsReport, getDetectedFormsReport, getPropertyBreakdownsReport, getGoalsReport, getFormsAnalyticsReport, getFunnelsReport } from "../reporting/service.js";
 import type { ReportingStorage } from "../reporting/types.js";
-import type { DailyStats } from "../types.js";
+import type { DailyStats, RawEvent } from "../types.js";
 import { normalizeDailyStats } from "../helpers/aggregation.js";
 
 function makeDailyStats(overrides: Partial<DailyStats> = {}): DailyStats {
@@ -13,7 +13,30 @@ function makeDailyStats(overrides: Partial<DailyStats> = {}): DailyStats {
 	});
 }
 
-function makeStorage(records: DailyStats[], customEvents: any[] = []): ReportingStorage {
+function makeRawEvent(overrides: Partial<RawEvent> = {}): RawEvent {
+	return {
+		pathname: "/blog/post",
+		type: "pageview",
+		referrer: "",
+		visitorId: "v-1",
+		country: "",
+		template: "",
+		collection: "",
+		utmSource: "",
+		utmMedium: "",
+		utmCampaign: "",
+		utmTerm: "",
+		utmContent: "",
+		seconds: 0,
+		scrollDepth: 0,
+		eventName: "",
+		eventProps: "",
+		createdAt: "2026-04-01T12:00:00.000Z",
+		...overrides,
+	};
+}
+
+function makeStorage(records: DailyStats[], customEvents: any[] = [], rawEvents: RawEvent[] = []): ReportingStorage {
 	return {
 		daily_stats: {
 			get: vi.fn(),
@@ -34,6 +57,18 @@ function makeStorage(records: DailyStats[], customEvents: any[] = []): Reporting
 				if (cursor) return { items: [], cursor: undefined };
 				return {
 					items: customEvents.map((data, i) => ({ id: String(i), data })),
+					cursor: undefined,
+				};
+			}),
+			deleteMany: vi.fn(),
+		},
+		events: {
+			get: vi.fn(),
+			put: vi.fn(),
+			query: vi.fn(async ({ cursor }: any) => {
+				if (cursor) return { items: [], cursor: undefined };
+				return {
+					items: rawEvents.map((data, i) => ({ id: String(i), data })),
 					cursor: undefined,
 				};
 			}),
@@ -656,6 +691,60 @@ describe("PortableReportingBackend", () => {
 			expect(result).toEqual([]);
 		});
 	});
+
+	describe("getFunnels", () => {
+		it("returns empty for no raw events", async () => {
+			const storage = makeStorage([], [], []);
+			const result = await backend.getFunnels(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", funnels: [] },
+				storage,
+			);
+			expect(result).toEqual([]);
+		});
+
+		it("auto-detects funnel from raw events", async () => {
+			const events = [
+				makeRawEvent({ type: "pageview", visitorId: "v-1", createdAt: "2026-04-01T10:00:00.000Z" }),
+				makeRawEvent({ type: "read", visitorId: "v-1", createdAt: "2026-04-01T10:01:00.000Z" }),
+				makeRawEvent({ type: "pageview", visitorId: "v-2", createdAt: "2026-04-01T11:00:00.000Z" }),
+				makeRawEvent({ type: "read", visitorId: "v-2", createdAt: "2026-04-01T11:01:00.000Z" }),
+			];
+			const storage = makeStorage([], [], events);
+			const result = await backend.getFunnels(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", funnels: [] },
+				storage,
+			);
+			expect(result.length).toBe(1);
+			expect(result[0].name).toBe("Detected Funnel");
+			expect(result[0].rows[0].visitors).toBe(2);
+		});
+
+		it("processes configured funnel with sequential steps", async () => {
+			const events = [
+				makeRawEvent({ type: "pageview", pathname: "/pricing", visitorId: "v-1", createdAt: "2026-04-01T10:00:00.000Z" }),
+				makeRawEvent({ type: "custom", eventName: "cta_click", visitorId: "v-1", createdAt: "2026-04-01T10:01:00.000Z" }),
+				makeRawEvent({ type: "pageview", pathname: "/pricing", visitorId: "v-2", createdAt: "2026-04-01T11:00:00.000Z" }),
+			];
+			const storage = makeStorage([], [], events);
+			const result = await backend.getFunnels({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				funnels: [{
+					id: "f1",
+					name: "Lead Funnel",
+					active: true,
+					steps: [
+						{ label: "Pricing Page", type: "page", target: "/pricing" },
+						{ label: "CTA Click", type: "event", target: "cta_click" },
+					],
+				}],
+			}, storage);
+
+			expect(result.length).toBe(1);
+			expect(result[0].rows[0]).toMatchObject({ step: "Pricing Page", visitors: 2 });
+			expect(result[0].rows[1]).toMatchObject({ step: "CTA Click", visitors: 1 });
+		});
+	});
 });
 
 // ─── Reporting service ─────────────────────────────────────────────────────
@@ -746,11 +835,21 @@ describe("reporting service", () => {
 
 	it("getFormsAnalyticsReport delegates to backend", async () => {
 		const mockResult = [{ form: "newsletter", event: "form_submit", submissions: 10, visitors: 5, submitRate: 5 }];
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn(), getGoals: vi.fn(), getFormsAnalytics: vi.fn().mockResolvedValue(mockResult) };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn(), getGoals: vi.fn(), getFormsAnalytics: vi.fn().mockResolvedValue(mockResult), getFunnels: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getFormsAnalyticsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100 }, storage);
 
 		expect(mockBackend.getFormsAnalytics).toHaveBeenCalled();
+		expect(result).toEqual(mockResult);
+	});
+
+	it("getFunnelsReport delegates to backend", async () => {
+		const mockResult = [{ name: "Test Funnel", rows: [{ step: "Step 1", visitors: 10, conversionRate: 100, dropOffRate: 0 }] }];
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn(), getGoals: vi.fn(), getFormsAnalytics: vi.fn(), getFunnels: vi.fn().mockResolvedValue(mockResult) };
+		const storage = makeStorage([]);
+		const result = await getFunnelsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", funnels: [] }, storage);
+
+		expect(mockBackend.getFunnels).toHaveBeenCalled();
 		expect(result).toEqual(mockResult);
 	});
 });

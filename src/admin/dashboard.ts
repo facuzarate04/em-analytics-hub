@@ -3,8 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import type { PluginContext } from "emdash";
-import type { LicenseCache, RawEvent } from "../types.js";
-import type { StorageCollection } from "../storage/queries.js";
+import type { LicenseCache } from "../types.js";
 import { dateNDaysAgo, today } from "../helpers/date.js";
 import { formatNumber, formatDuration, calculateTrend } from "../helpers/format.js";
 import {
@@ -19,9 +18,7 @@ import {
 	canViewFormsAnalytics,
 	canComparePeriods,
 } from "../license/features.js";
-import { getCustomEventsReport, getPropertyBreakdownsReport, getGoalsReport, getFormsAnalyticsReport } from "../reporting/service.js";
-import { aggregateConfiguredFunnel, aggregateFunnel, buildDefaultFunnelSteps } from "../helpers/funnels.js";
-import { queryRawEvents } from "../storage/events.js";
+import { getCustomEventsReport, getPropertyBreakdownsReport, getGoalsReport, getFormsAnalyticsReport, getFunnelsReport } from "../reporting/service.js";
 import { loadFunnelDefinitions, loadGoalDefinitions } from "./config.js";
 import {
 	header,
@@ -257,31 +254,18 @@ export async function buildDashboard(
 		);
 	}
 
-	// ── Funnels v1 ───────────────────────────────────────────────
-	// LEGACY PORTABLE READS (Pro only):
-	// This section reads raw events from portable storage for funnels.
-	// Goals and forms analytics have been migrated to the reporting backend.
-	//
-	// Reads:
-	//   events → funnels (queryRawEvents for step detection)
-	//
-	// This is the sole remaining reason portable events writes are
-	// maintained in CF ingestion. Migrate funnels to D1/AE to eliminate.
+	// ── Conversion: Funnels, Goals, Forms ───────────────────────
+	// All conversion features use the reporting backend (D1 in CF mode,
+	// portable storage in portable mode). No direct portable reads.
 	if (isPro) {
 		try {
-			const rawEvents = await queryRawEvents(ctx.storage.events as StorageCollection<RawEvent>, dateFrom, dateTo);
 			const configuredFunnels = (await loadFunnelDefinitions(ctx)).filter((item) => item.active);
 			const configuredGoals = (await loadGoalDefinitions(ctx)).filter((item) => item.active);
-			const funnelSets = configuredFunnels.length > 0
-				? configuredFunnels.map((funnel) => ({
-					name: funnel.name,
-					rows: aggregateConfiguredFunnel(rawEvents, funnel),
-				})).filter((funnel) => funnel.rows.length >= 2)
-				: (() => {
-					const funnelSteps = buildDefaultFunnelSteps(rawEvents);
-					const rows = aggregateFunnel(rawEvents, funnelSteps);
-					return rows.length >= 2 ? [{ name: "Detected Funnel", rows }] : [];
-				})();
+			const funnelSets = await getFunnelsReport(backend, {
+				dateFrom,
+				dateTo,
+				funnels: configuredFunnels,
+			}, storage);
 			const goalRows = canViewGoals(license)
 				? await getGoalsReport(backend, {
 					dateFrom,
@@ -328,12 +312,12 @@ export async function buildDashboard(
 						),
 					);
 				}
-				} else {
-					blocks.push(
-						divider(),
-						banner("Conversion", "Set up a funnel in the Funnels page or keep tracking pageviews and events to let Analytics Hub detect one automatically."),
-					);
-				}
+			} else {
+				blocks.push(
+					divider(),
+					banner("Conversion", "Set up a funnel in the Funnels page or keep tracking pageviews and events to let Analytics Hub detect one automatically."),
+				);
+			}
 
 			if (goalRows.length > 0) {
 				blocks.push(
@@ -376,10 +360,10 @@ export async function buildDashboard(
 					),
 				);
 			}
-			} catch (error) {
-				console.error("[analytics-hub] Failed to build funnels", error);
-			}
+		} catch (error) {
+			console.error("[analytics-hub] Failed to build conversion section", error);
 		}
+	}
 
 	// ── Campaigns / Campaign Intelligence ────────────────────────
 	if (canViewCampaignIntelligence(license)) {

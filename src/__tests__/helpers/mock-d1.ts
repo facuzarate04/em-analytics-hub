@@ -31,6 +31,7 @@ export function createMockD1(): D1Database & { _tables: Map<string, Table>; _res
 	}
 
 	function findRowIndex(table: Table, keyValues: Record<string, unknown>): number {
+		if (table.primaryKey.length === 0) return -1; // No PK = no duplicate check
 		return table.rows.findIndex((row) =>
 			table.primaryKey.every((col) => row[col] === keyValues[col]),
 		);

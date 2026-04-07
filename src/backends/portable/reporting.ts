@@ -18,9 +18,11 @@ import type {
 	PropertyBreakdownsReport,
 	GoalsQuery,
 	FormsAnalyticsQuery,
+	FunnelsQuery,
+	FunnelSet,
 } from "../../reporting/types.js";
 import type { FormAnalyticsRow } from "../../helpers/forms-analytics.js";
-import type { CustomEvent, GoalMetricRow } from "../../types.js";
+import type { CustomEvent, GoalMetricRow, RawEvent } from "../../types.js";
 import type { StorageCollection } from "../../storage/queries.js";
 import { queryStatsForRange } from "../../storage/stats.js";
 import { aggregateStats } from "../../helpers/aggregation.js";
@@ -28,6 +30,8 @@ import { aggregateCampaignIntelligence } from "../../helpers/campaign-intelligen
 import { queryCustomEvents, aggregateCustomEvents, aggregateCustomEventTrends, aggregateCustomEventProperties } from "../../storage/custom-events.js";
 import { aggregateGoals, isAutoGoalCandidate } from "../../helpers/goals.js";
 import { aggregateFormsAnalytics } from "../../helpers/forms-analytics.js";
+import { aggregateConfiguredFunnel, aggregateFunnel, buildDefaultFunnelSteps } from "../../helpers/funnels.js";
+import { queryRawEvents } from "../../storage/events.js";
 
 function pct(part: number, total: number): number {
 	return total > 0 ? Math.round((part / total) * 100) : 0;
@@ -265,5 +269,29 @@ export class PortableReportingBackend implements AnalyticsReportingBackend {
 		);
 
 		return aggregateFormsAnalytics(items, query.totalVisitors);
+	}
+
+	async getFunnels(query: FunnelsQuery, storage: ReportingStorage): Promise<FunnelSet[]> {
+		const { dateFrom, dateTo, funnels } = query;
+
+		const rawEvents = await queryRawEvents(
+			storage.events as StorageCollection<RawEvent>,
+			dateFrom,
+			dateTo,
+		);
+
+		if (funnels.length > 0) {
+			return funnels
+				.map((funnel) => ({
+					name: funnel.name,
+					rows: aggregateConfiguredFunnel(rawEvents, funnel),
+				}))
+				.filter((set) => set.rows.length >= 2);
+		}
+
+		// Auto-detect mode
+		const funnelSteps = buildDefaultFunnelSteps(rawEvents);
+		const autoRows = aggregateFunnel(rawEvents, funnelSteps);
+		return autoRows.length >= 2 ? [{ name: "Detected Funnel", rows: autoRows }] : [];
 	}
 }

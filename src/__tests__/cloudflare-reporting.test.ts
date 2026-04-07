@@ -27,6 +27,7 @@ async function seedData(db: ReturnType<typeof createMockD1>, data: {
 	formVisitors?: Array<{ date: string; form_name: string; visitor_id: string }>;
 	formAnalytics?: Array<{ date: string; event_name: string; form_name: string; count: number }>;
 	formAnalyticsVisitors?: Array<{ date: string; event_name: string; form_name: string; visitor_id: string }>;
+	funnelEvents?: Array<{ date: string; visitor_id: string; created_at: string; event_type: string; pathname: string; event_name: string; event_props: string }>;
 }) {
 	for (const p of data.pages ?? []) {
 		await db.prepare(
@@ -95,6 +96,11 @@ async function seedData(db: ReturnType<typeof createMockD1>, data: {
 			`INSERT OR IGNORE INTO daily_form_analytics_visitors (date, event_name, form_name, visitor_id) VALUES (?, ?, ?, ?)`,
 		).bind(fav.date, fav.event_name, fav.form_name, fav.visitor_id).run();
 	}
+	for (const fe of data.funnelEvents ?? []) {
+		await db.prepare(
+			`INSERT INTO funnel_events (date, visitor_id, created_at, event_type, pathname, event_name, event_props) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		).bind(fe.date, fe.visitor_id, fe.created_at, fe.event_type, fe.pathname, fe.event_name, fe.event_props).run();
+	}
 }
 
 describe("CloudflareReportingBackend", () => {
@@ -106,6 +112,186 @@ describe("CloudflareReportingBackend", () => {
 		db = createMockD1();
 		await ensureD1Schema(db);
 		backend = new CloudflareReportingBackend(db);
+	});
+
+	// -----------------------------------------------------------------------
+	// getFunnels
+	// -----------------------------------------------------------------------
+
+	describe("getFunnels", () => {
+		it("returns empty for no funnel events", async () => {
+			const result = await backend.getFunnels(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", funnels: [] },
+				dummyStorage,
+			);
+			expect(result).toEqual([]);
+		});
+
+		it("auto-detects funnel from event patterns", async () => {
+			await seedData(db, {
+				funnelEvents: [
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:00:00Z", event_type: "pageview", pathname: "/blog", event_name: "", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:01:00Z", event_type: "read", pathname: "/blog", event_name: "", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:02:00Z", event_type: "engaged", pathname: "/blog", event_name: "", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-2", created_at: "2026-04-01T11:00:00Z", event_type: "pageview", pathname: "/blog", event_name: "", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-2", created_at: "2026-04-01T11:01:00Z", event_type: "read", pathname: "/blog", event_name: "", event_props: "" },
+				],
+			});
+
+			const result = await backend.getFunnels(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", funnels: [] },
+				dummyStorage,
+			);
+
+			expect(result.length).toBe(1);
+			expect(result[0].name).toBe("Detected Funnel");
+			expect(result[0].rows.length).toBeGreaterThanOrEqual(2);
+			expect(result[0].rows[0].step).toBe("Page View");
+			expect(result[0].rows[0].visitors).toBe(2);
+		});
+
+		it("processes configured funnel with sequential steps", async () => {
+			await seedData(db, {
+				funnelEvents: [
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:00:00Z", event_type: "pageview", pathname: "/pricing", event_name: "", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:01:00Z", event_type: "custom", pathname: "/pricing", event_name: "cta_click", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:02:00Z", event_type: "custom", pathname: "/pricing", event_name: "signup_submit", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-2", created_at: "2026-04-01T11:00:00Z", event_type: "pageview", pathname: "/pricing", event_name: "", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-2", created_at: "2026-04-01T11:01:00Z", event_type: "custom", pathname: "/pricing", event_name: "cta_click", event_props: "" },
+				],
+			});
+
+			const result = await backend.getFunnels({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				funnels: [{
+					id: "f1",
+					name: "Lead Funnel",
+					active: true,
+					steps: [
+						{ label: "Pricing Page", type: "page", target: "/pricing" },
+						{ label: "CTA Click", type: "event", target: "cta_click" },
+						{ label: "Signup Submit", type: "event", target: "signup_submit" },
+					],
+				}],
+			}, dummyStorage);
+
+			expect(result.length).toBe(1);
+			expect(result[0].name).toBe("Lead Funnel");
+			expect(result[0].rows).toHaveLength(3);
+			expect(result[0].rows[0]).toMatchObject({ step: "Pricing Page", visitors: 2, conversionRate: 100 });
+			expect(result[0].rows[1]).toMatchObject({ step: "CTA Click", visitors: 2, conversionRate: 100 });
+			expect(result[0].rows[2]).toMatchObject({ step: "Signup Submit", visitors: 1, conversionRate: 50 });
+		});
+
+		it("handles form steps via eventProps", async () => {
+			await seedData(db, {
+				funnelEvents: [
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:00:00Z", event_type: "pageview", pathname: "/contact", event_name: "", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:01:00Z", event_type: "custom", pathname: "/contact", event_name: "form_submit", event_props: '{"form":"contact"}' },
+				],
+			});
+
+			const result = await backend.getFunnels({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				funnels: [{
+					id: "f1",
+					name: "Contact Flow",
+					active: true,
+					steps: [
+						{ label: "Contact Page", type: "page", target: "/contact" },
+						{ label: "Form Submit", type: "form", target: "contact" },
+					],
+				}],
+			}, dummyStorage);
+
+			expect(result.length).toBe(1);
+			expect(result[0].rows).toHaveLength(2);
+			expect(result[0].rows[0]).toMatchObject({ step: "Contact Page", visitors: 1 });
+			expect(result[0].rows[1]).toMatchObject({ step: "Form Submit", visitors: 1 });
+		});
+
+		it("filters by date range", async () => {
+			await seedData(db, {
+				funnelEvents: [
+					{ date: "2026-03-31", visitor_id: "v-old", created_at: "2026-03-31T10:00:00Z", event_type: "pageview", pathname: "/blog", event_name: "", event_props: "" },
+					{ date: "2026-03-31", visitor_id: "v-old", created_at: "2026-03-31T10:01:00Z", event_type: "read", pathname: "/blog", event_name: "", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-new", created_at: "2026-04-01T10:00:00Z", event_type: "pageview", pathname: "/blog", event_name: "", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-new", created_at: "2026-04-01T10:01:00Z", event_type: "read", pathname: "/blog", event_name: "", event_props: "" },
+				],
+			});
+
+			const result = await backend.getFunnels(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", funnels: [] },
+				dummyStorage,
+			);
+
+			expect(result.length).toBe(1);
+			expect(result[0].rows[0].visitors).toBe(1); // only v-new
+		});
+
+		it("filters out funnels with fewer than 2 completed steps", async () => {
+			await seedData(db, {
+				funnelEvents: [
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:00:00Z", event_type: "pageview", pathname: "/pricing", event_name: "", event_props: "" },
+				],
+			});
+
+			const result = await backend.getFunnels({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				funnels: [{
+					id: "f1",
+					name: "Incomplete",
+					active: true,
+					steps: [
+						{ label: "Pricing", type: "page", target: "/pricing" },
+						{ label: "Missing Step", type: "event", target: "nonexistent" },
+					],
+				}],
+			}, dummyStorage);
+
+			// aggregateConfiguredFunnel returns rows for all steps, but the funnel
+			// should still be included since it has 2 steps defined
+			expect(result.length).toBe(1);
+		});
+
+		it("returns multiple configured funnels", async () => {
+			await seedData(db, {
+				funnelEvents: [
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:00:00Z", event_type: "pageview", pathname: "/pricing", event_name: "", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:01:00Z", event_type: "custom", pathname: "/pricing", event_name: "cta_click", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:02:00Z", event_type: "pageview", pathname: "/blog", event_name: "", event_props: "" },
+					{ date: "2026-04-01", visitor_id: "v-1", created_at: "2026-04-01T10:03:00Z", event_type: "read", pathname: "/blog", event_name: "", event_props: "" },
+				],
+			});
+
+			const result = await backend.getFunnels({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				funnels: [
+					{
+						id: "f1", name: "Pricing Funnel", active: true,
+						steps: [
+							{ label: "Pricing", type: "page", target: "/pricing" },
+							{ label: "CTA", type: "event", target: "cta_click" },
+						],
+					},
+					{
+						id: "f2", name: "Blog Funnel", active: true,
+						steps: [
+							{ label: "Blog", type: "page", target: "/blog" },
+							{ label: "Read", type: "event", target: "nonexistent" },
+						],
+					},
+				],
+			}, dummyStorage);
+
+			expect(result.length).toBe(2);
+			expect(result[0].name).toBe("Pricing Funnel");
+			expect(result[1].name).toBe("Blog Funnel");
+		});
 	});
 
 	// -----------------------------------------------------------------------

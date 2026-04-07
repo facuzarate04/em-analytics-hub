@@ -27,10 +27,13 @@ import type {
 	PropertyBreakdownsReport,
 	GoalsQuery,
 	FormsAnalyticsQuery,
+	FunnelsQuery,
+	FunnelSet,
 } from "../../reporting/types.js";
 import type { FormAnalyticsRow } from "../../helpers/forms-analytics.js";
-import type { GoalMetricRow } from "../../types.js";
+import type { GoalMetricRow, RawEvent } from "../../types.js";
 import { isAutoGoalCandidate, prettifyGoalName } from "../../helpers/goals.js";
+import { aggregateConfiguredFunnel, aggregateFunnel, buildDefaultFunnelSteps } from "../../helpers/funnels.js";
 import type { D1Database } from "./d1.js";
 import { ensureD1Schema } from "./d1.js";
 
@@ -443,6 +446,64 @@ export class CloudflareReportingBackend implements AnalyticsReportingBackend {
 		}
 
 		return result;
+	}
+
+	async getFunnels(query: FunnelsQuery, _storage: ReportingStorage): Promise<FunnelSet[]> {
+		await ensureD1Schema(this.db);
+		const { dateFrom, dateTo, funnels } = query;
+
+		// Query funnel events from D1
+		const rows = await this.db.prepare(
+			`SELECT visitor_id, created_at, event_type, pathname, event_name, event_props
+			 FROM funnel_events
+			 WHERE date >= ? AND date <= ?
+			 ORDER BY created_at`,
+		).bind(dateFrom, dateTo).all<{
+			visitor_id: string;
+			created_at: string;
+			event_type: string;
+			pathname: string;
+			event_name: string;
+			event_props: string;
+		}>();
+
+		// Convert D1 rows to RawEvent-like items for funnel helpers
+		const items: Array<{ id: string; data: RawEvent }> = (rows.results ?? []).map((row, index) => ({
+			id: String(index),
+			data: {
+				pathname: row.pathname,
+				type: row.event_type as RawEvent["type"],
+				referrer: "",
+				visitorId: row.visitor_id,
+				country: "",
+				template: "",
+				collection: "",
+				utmSource: "",
+				utmMedium: "",
+				utmCampaign: "",
+				utmTerm: "",
+				utmContent: "",
+				seconds: 0,
+				scrollDepth: 0,
+				eventName: row.event_name,
+				eventProps: row.event_props,
+				createdAt: row.created_at,
+			},
+		}));
+
+		if (funnels.length > 0) {
+			return funnels
+				.map((funnel) => ({
+					name: funnel.name,
+					rows: aggregateConfiguredFunnel(items, funnel),
+				}))
+				.filter((set) => set.rows.length >= 2);
+		}
+
+		// Auto-detect mode
+		const funnelSteps = buildDefaultFunnelSteps(items);
+		const autoRows = aggregateFunnel(items, funnelSteps);
+		return autoRows.length >= 2 ? [{ name: "Detected Funnel", rows: autoRows }] : [];
 	}
 
 	async getPropertyBreakdowns(query: PropertyBreakdownsQuery, _storage: ReportingStorage): Promise<PropertyBreakdownsReport> {

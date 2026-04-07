@@ -48,6 +48,7 @@ export interface D1ExecResult {
 // daily_form_visitors — per (date, form_name, visitor_id) for unique counting
 // daily_form_analytics — per (date, event_name, form_name) submission counts
 // daily_form_analytics_visitors — per (date, event_name, form_name, visitor_id)
+// funnel_events — per-event log for funnel reconstruction (all types except scroll/ping)
 // ---------------------------------------------------------------------------
 
 const SCHEMA_SQL = `
@@ -150,6 +151,19 @@ CREATE TABLE IF NOT EXISTS daily_form_analytics_visitors (
   visitor_id TEXT NOT NULL,
   PRIMARY KEY (date, event_name, form_name, visitor_id)
 );
+
+CREATE TABLE IF NOT EXISTS funnel_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT NOT NULL,
+  visitor_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  pathname TEXT DEFAULT '',
+  event_name TEXT DEFAULT '',
+  event_props TEXT DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_funnel_events_date ON funnel_events (date);
 `;
 
 let _schemaReady = false;
