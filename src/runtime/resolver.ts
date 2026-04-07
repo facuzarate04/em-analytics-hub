@@ -33,10 +33,10 @@ function buildCloudflareRuntime(bindings: CloudflareBindings): AnalyticsRuntime 
 	const d1 = bindings.d1 as D1Database;
 	return {
 		id: "cloudflare",
-		// Writes: AE (source of truth) + D1 (aggregated reporting) + portable events/custom_events (legacy Pro reads)
-		// daily_stats is NOT written — core reporting reads from D1 exclusively.
+		// Writes: AE (source of truth) + D1 (aggregated + funnel event log)
+		// Does NOT write to portable storage — all reporting reads from D1.
 		ingestion: new CloudflareIngestionBackend(dataset, d1),
-		// D1-backed reporting — reads from tables populated by ingestion above
+		// D1-backed reporting — reads from tables populated by ingestion
 		reporting: new CloudflareReportingBackend(d1),
 	};
 }

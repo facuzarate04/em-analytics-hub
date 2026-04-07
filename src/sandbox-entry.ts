@@ -121,6 +121,9 @@ export default definePlugin({
 				}
 
 				if (event.name === CRON_JOBS.PRUNE_EVENTS) {
+					// Prunes portable storage collections. In Cloudflare mode these
+					// collections are empty (all writes go to D1), so this is a no-op.
+					// D1 funnel_events retention is managed separately.
 					try {
 						const license = await getLicense(ctx.kv);
 						const retentionDays = getMaxRetentionDays(license);
