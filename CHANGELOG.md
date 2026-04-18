@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-18
+
+### Added
+
+- Cloudflare Workers runtime with automatic environment detection (`portable`, `cloudflare`, `auto` modes)
+- D1 ingestion backend with dual-write to Analytics Engine and 14 normalized D1 tables
+- D1 reporting backend serving all analytics queries (stats, top pages, referrers, campaigns, custom events, funnels, goals, forms, property breakdowns)
+- In-memory mock D1 for unit testing without real infrastructure
+- "Support the Project" section in README and CONTRIBUTING
+
+### Changed
+
+- All features are now free and open source — no license keys, no feature gates, no paid tiers
+- Default data retention increased from 30 to 365 days
+- Maximum date range increased to 730 days
+- All date range options (7, 14, 30, 90, 365 days) available to all users
+- Plugin no longer requires `network:fetch` capability
+
+### Removed
+
+- License/subscription system (LemonSqueezy provider, feature gating, plan tiers, grace period logic)
+- `src/license/` directory (features.ts, providers/dev.ts, providers/lemon-squeezy.ts)
+- `src/admin/license.ts` (license status UI, deactivate action)
+- `PlanId`, `PlanDefinition`, `LicenseCache`, `LicenseProvider` types
+- `licenseKey` plugin setting and `ANALYTICS_HUB_LICENSE_KEY` env var
+- `validate-license` cron job
+- Upgrade pages for Goals and Funnels
+- All `canView*`, `hasFeature`, `isFreePlan` checks from dashboard and routes
+- `plan` field from API route responses
+- `allowedHosts` for `api.lemonsqueezy.com`
+
 ## [0.2.0] - 2026-04-05
 
 ### Changed

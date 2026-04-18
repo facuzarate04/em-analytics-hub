@@ -26,7 +26,7 @@ import { DEFAULT_EXCLUDED_PATHS } from "./constants.js";
 export function analyticsHub(options?: AnalyticsHubOptions): PluginDescriptor {
 	return {
 		id: "analytics-hub",
-		version: "0.2.0",
+		version: "0.3.0",
 		format: "standard",
 		entrypoint: "em-analytics-hub/sandbox",
 		options: {
