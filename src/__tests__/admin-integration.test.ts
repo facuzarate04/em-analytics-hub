@@ -73,27 +73,10 @@ describe("handleAdmin", () => {
 		expect(result.blocks).toBeDefined();
 	});
 
-	it("returns goals upgrade page on free plan", async () => {
-		const ctx = makeCtx();
-		const result = await handleAdmin(
-			makeRouteCtx({ type: "page_load", page: "/analytics/goals" }),
-			ctx,
-		);
-
-		const blocks = result.blocks as any[];
-		const upgradeBanner = blocks.find((b: any) =>
-			b.type === "banner" && typeof b.description === "string" && b.description.toLowerCase().includes("pro"),
-		);
-		expect(upgradeBanner).toBeTruthy();
-	});
-
-	it("returns goals page with catalog on pro plan", async () => {
+	it("returns goals page directly", async () => {
 		const ctx = makeCtx({
 			stats: [makeDailyStats({ pathname: "/pricing" })],
 			customEvents: [{ name: "signup", pathname: "/pricing", props: {}, visitorId: "a", createdAt: "2026-04-01T00:00:00Z" }],
-			kvOverrides: {
-				"state:license_cache": { plan: "pro", status: "active", instanceId: "x", siteUrl: "", validUntil: "", checkedAt: "", graceEndsAt: "" },
-			},
 		});
 		const result = await handleAdmin(
 			makeRouteCtx({ type: "page_load", page: "/analytics/goals" }),
@@ -105,26 +88,9 @@ describe("handleAdmin", () => {
 		expect(goalsHeader).toBeTruthy();
 	});
 
-	it("returns funnels upgrade page on free plan", async () => {
-		const ctx = makeCtx();
-		const result = await handleAdmin(
-			makeRouteCtx({ type: "page_load", page: "/analytics/funnels" }),
-			ctx,
-		);
-
-		const blocks = result.blocks as any[];
-		const upgradeBanner = blocks.find((b: any) =>
-			b.type === "banner" && typeof b.description === "string" && b.description.toLowerCase().includes("pro"),
-		);
-		expect(upgradeBanner).toBeTruthy();
-	});
-
-	it("returns funnels page with catalog on pro plan", async () => {
+	it("returns funnels page directly", async () => {
 		const ctx = makeCtx({
 			stats: [makeDailyStats({ pathname: "/blog" })],
-			kvOverrides: {
-				"state:license_cache": { plan: "pro", status: "active", instanceId: "x", siteUrl: "", validUntil: "", checkedAt: "", graceEndsAt: "" },
-			},
 		});
 		const result = await handleAdmin(
 			makeRouteCtx({ type: "page_load", page: "/analytics/funnels" }),

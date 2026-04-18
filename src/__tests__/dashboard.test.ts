@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { buildDashboard } from "../admin/dashboard.js";
 import { buildWidget } from "../admin/widget.js";
-import type { DailyStats, LicenseCache } from "../types.js";
+import type { DailyStats } from "../types.js";
 import { normalizeDailyStats } from "../helpers/aggregation.js";
 
 function makeDailyStats(overrides: Partial<DailyStats> = {}): DailyStats {
@@ -55,32 +55,12 @@ function makeCtx(records: DailyStats[] = [], kvOverrides: Record<string, unknown
 	} as any;
 }
 
-const freeLicense: LicenseCache = {
-	plan: "free",
-	validUntil: "",
-	checkedAt: "",
-	status: "inactive",
-	instanceId: "",
-	siteUrl: "",
-	graceEndsAt: "",
-};
-
-const proLicense: LicenseCache = {
-	plan: "pro",
-	validUntil: "2027-01-01T00:00:00Z",
-	checkedAt: "2026-04-05T00:00:00Z",
-	status: "active",
-	instanceId: "inst_123",
-	siteUrl: "https://example.com",
-	graceEndsAt: "",
-};
-
 // ─── buildDashboard ────────────────────────────────────────────────────────
 
 describe("buildDashboard", () => {
 	it("returns blocks for empty data", async () => {
 		const ctx = makeCtx([]);
-		const result = await buildDashboard(ctx, 7, freeLicense);
+		const result = await buildDashboard(ctx, 7);
 
 		expect(result.blocks).toBeDefined();
 		expect(Array.isArray(result.blocks)).toBe(true);
@@ -93,7 +73,7 @@ describe("buildDashboard", () => {
 		const ctx = makeCtx([
 			makeDailyStats({ views: 100, visitors: ["a", "b", "c"], reads: 30 }),
 		]);
-		const result = await buildDashboard(ctx, 7, freeLicense);
+		const result = await buildDashboard(ctx, 7);
 
 		const blocks = result.blocks as any[];
 		const statsBlocks = blocks.filter((b: any) => b.type === "stats");
@@ -108,7 +88,7 @@ describe("buildDashboard", () => {
 		const ctx = makeCtx([
 			makeDailyStats({ views: 50, referrers: { "google.com": 30, "twitter.com": 10 } }),
 		]);
-		const result = await buildDashboard(ctx, 7, freeLicense);
+		const result = await buildDashboard(ctx, 7);
 
 		const blocks = result.blocks as any[];
 		const referrerHeader = blocks.find((b: any) => b.type === "header" && b.text === "Referrers");
@@ -120,46 +100,34 @@ describe("buildDashboard", () => {
 			makeDailyStats({ pathname: "/blog", views: 50 }),
 			makeDailyStats({ pathname: "/about", views: 20 }),
 		]);
-		const result = await buildDashboard(ctx, 7, freeLicense);
+		const result = await buildDashboard(ctx, 7);
 
 		const blocks = result.blocks as any[];
 		const topPagesHeader = blocks.find((b: any) => b.type === "header" && b.text === "Top Pages");
 		expect(topPagesHeader).toBeTruthy();
 	});
 
-	it("includes campaigns section on free plan", async () => {
+	it("includes campaigns section", async () => {
 		const ctx = makeCtx([
 			makeDailyStats({ views: 50, utmSources: { twitter: 10 } }),
 		]);
-		const result = await buildDashboard(ctx, 7, freeLicense);
+		const result = await buildDashboard(ctx, 7);
 
 		const blocks = result.blocks as any[];
 		const campaignHeader = blocks.find((b: any) => b.type === "header" && b.text === "Campaigns");
 		expect(campaignHeader).toBeTruthy();
 	});
 
-	it("excludes countries on free plan", async () => {
-		const ctx = makeCtx([
-			makeDailyStats({ views: 50, countries: { US: 10 } }),
-		]);
-		const result = await buildDashboard(ctx, 7, freeLicense);
-
-		const blocks = result.blocks as any[];
-		const countriesHeader = blocks.find((b: any) => b.type === "header" && b.text === "Countries");
-		expect(countriesHeader).toBeUndefined();
-	});
-
-	it("includes countries on pro plan", async () => {
+	it("includes countries when data is present", async () => {
 		const ctx = makeCtx([
 			makeDailyStats({ views: 50, countries: { US: 10, AR: 5 } }),
 		]);
-		const result = await buildDashboard(ctx, 7, proLicense);
+		const result = await buildDashboard(ctx, 7);
 
 		const blocks = result.blocks as any[];
 		const countriesHeader = blocks.find((b: any) => b.type === "header" && b.text === "Countries");
 		expect(countriesHeader).toBeTruthy();
 	});
-
 });
 
 // ─── buildWidget ───────────────────────────────────────────────────────────
@@ -170,7 +138,7 @@ describe("buildWidget", () => {
 			makeDailyStats({ pathname: "/blog", views: 50, visitors: ["a", "b"] }),
 			makeDailyStats({ pathname: "/about", views: 20, visitors: ["c"] }),
 		]);
-		const result = await buildWidget(ctx, freeLicense);
+		const result = await buildWidget(ctx);
 
 		expect(result.blocks).toBeDefined();
 		const blocks = result.blocks as any[];
@@ -186,7 +154,7 @@ describe("buildWidget", () => {
 
 	it("returns zeroes for empty data", async () => {
 		const ctx = makeCtx([]);
-		const result = await buildWidget(ctx, freeLicense);
+		const result = await buildWidget(ctx);
 
 		const blocks = result.blocks as any[];
 		const statsB = blocks[0];

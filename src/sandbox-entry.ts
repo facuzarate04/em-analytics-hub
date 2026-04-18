@@ -11,46 +11,14 @@ import { definePlugin } from "emdash";
 import type { PluginContext, RouteContext } from "emdash";
 import { generateBeaconScript } from "./beacon.js";
 import { dateNDaysAgo } from "./helpers/date.js";
-import { KV_KEYS, CRON_JOBS } from "./constants.js";
-import {
-	getLicense,
-	saveLicense,
-	getMaxRetentionDays,
-	activateLicense,
-	validateLicense,
-	deactivateLicense,
-	FREE_LICENSE,
-} from "./license/features.js";
-import { LemonSqueezyProvider } from "./license/providers/lemon-squeezy.js";
-import { DevLicenseProvider, shouldUseDevProvider } from "./license/providers/dev.js";
+import { KV_KEYS, CRON_JOBS, DEFAULT_RETENTION_DAYS } from "./constants.js";
 import { pruneOlderThan } from "./storage/queries.js";
 import { handleTrack } from "./routes/track.js";
 import { handleStats } from "./routes/stats.js";
 import { handleTopPages } from "./routes/top-pages.js";
 import { handleReferrers } from "./routes/referrers.js";
 import { handleCampaigns } from "./routes/campaigns.js";
-import { handleAdmin, setLicenseProvider } from "./routes/admin.js";
-
-// ─── License Provider ───────────────────────────────────────────────────────
-// DevLicenseProvider: requires EM_ANALYTICS_HUB_DEV_LICENSE=1 AND NODE_ENV !== "production"
-// LemonSqueezyProvider: used in all other cases (including production)
-
-const isDevMode = shouldUseDevProvider();
-const licenseProvider = isDevMode
-	? new DevLicenseProvider()
-	: new LemonSqueezyProvider();
-
-setLicenseProvider(licenseProvider);
-
-/**
- * Reads the license key from plugin settings first, then env var as fallback.
- */
-async function getLicenseKey(ctx: PluginContext): Promise<string> {
-	const fromSettings = (await ctx.kv.get<string>(KV_KEYS.SETTINGS_LICENSE_KEY)) ?? "";
-	if (fromSettings) return fromSettings;
-	if (typeof process === "undefined") return "";
-	return process.env?.ANALYTICS_HUB_LICENSE_KEY ?? "";
-}
+import { handleAdmin } from "./routes/admin.js";
 
 // ─── Plugin Definition ──────────────────────────────────────────────────────
 
@@ -62,7 +30,6 @@ export default definePlugin({
 			handler: async (_event: unknown, ctx: PluginContext) => {
 				const salt = crypto.randomUUID();
 				await ctx.kv.set(KV_KEYS.DAILY_SALT, salt);
-				await saveLicense(ctx.kv, FREE_LICENSE);
 			},
 		},
 
@@ -75,21 +42,6 @@ export default definePlugin({
 					await ctx.cron.schedule(CRON_JOBS.PRUNE_EVENTS, {
 						schedule: "0 3 * * *",
 					});
-					await ctx.cron.schedule(CRON_JOBS.VALIDATE_LICENSE, {
-						schedule: "0 6 * * *",
-					});
-				}
-
-				// Activate license from plugin options or dev mode
-				try {
-					const siteUrl = ctx.site?.url ?? ctx.url?.("/") ?? "unknown";
-					const licenseKey = isDevMode ? "dev-mode" : await getLicenseKey(ctx);
-
-					if (licenseKey) {
-						await activateLicense(ctx.kv, licenseProvider, licenseKey, siteUrl);
-					}
-				} catch (error) {
-					report(error);
 				}
 			},
 		},
@@ -99,14 +51,6 @@ export default definePlugin({
 				if (ctx.cron) {
 					await ctx.cron.cancel(CRON_JOBS.ROTATE_SALT);
 					await ctx.cron.cancel(CRON_JOBS.PRUNE_EVENTS);
-					await ctx.cron.cancel(CRON_JOBS.VALIDATE_LICENSE);
-				}
-
-				// Release the license activation slot in the provider
-				try {
-					await deactivateLicense(ctx.kv, licenseProvider);
-				} catch (error) {
-					report(error);
 				}
 			},
 		},
@@ -125,8 +69,8 @@ export default definePlugin({
 					// collections are empty (all writes go to D1), so this is a no-op.
 					// D1 funnel_events retention is managed separately.
 					try {
-						const license = await getLicense(ctx.kv);
-						const retentionDays = getMaxRetentionDays(license);
+						const retentionSetting = await ctx.kv.get<number>(KV_KEYS.SETTINGS_RETENTION_DAYS);
+						const retentionDays = retentionSetting ?? DEFAULT_RETENTION_DAYS;
 						const cutoff = dateNDaysAgo(retentionDays);
 
 						const prunedEvents = await pruneOlderThan(
@@ -146,16 +90,6 @@ export default definePlugin({
 								`Pruned ${prunedEvents} events and ${prunedCustom} custom events older than ${cutoff}`,
 							);
 						}
-					} catch (error) {
-						report(error);
-					}
-				}
-
-				if (event.name === CRON_JOBS.VALIDATE_LICENSE) {
-					try {
-						const siteUrl = ctx.site?.url ?? ctx.url?.("/") ?? "unknown";
-						const licenseKey = isDevMode ? "dev-mode" : await getLicenseKey(ctx);
-						await validateLicense(ctx.kv, licenseProvider, siteUrl, licenseKey);
 					} catch (error) {
 						report(error);
 					}

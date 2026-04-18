@@ -121,19 +121,6 @@ export function buildGoalsPage(input: {
 	return { blocks };
 }
 
-export function buildGoalsUpgradePage(): Record<string, unknown> {
-	return {
-		blocks: [
-			header("Goals"),
-			banner(
-				"Goals are a Pro feature",
-				"Upgrade to Pro to create page, form, and event goals, then measure conversions directly inside EmDash.",
-			),
-			context("Free includes core analytics, referrers, UTM basics, and custom event counts."),
-		],
-	};
-}
-
 function stepFields(prefix: string, index: number, catalog: DetectionCatalog): Record<string, unknown>[] {
 	const base = `${prefix}_step_${index}`;
 	return [
@@ -263,17 +250,4 @@ export function buildFunnelsPage(input: {
 	}
 
 	return { blocks };
-}
-
-export function buildFunnelsUpgradePage(): Record<string, unknown> {
-	return {
-		blocks: [
-			header("Funnels"),
-			banner(
-				"Funnels are a Pro feature",
-				"Upgrade to Pro to configure multi-step funnels from detected pages, forms, and custom events.",
-			),
-			context("Free includes core analytics, custom event trends, and UTM basics."),
-		],
-	};
 }

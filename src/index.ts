@@ -26,14 +26,13 @@ import { DEFAULT_EXCLUDED_PATHS } from "./constants.js";
 export function analyticsHub(options?: AnalyticsHubOptions): PluginDescriptor {
 	return {
 		id: "analytics-hub",
-		version: "0.1.0",
+		version: "0.2.0",
 		format: "standard",
 		entrypoint: "em-analytics-hub/sandbox",
 		options: {
 			excludedPaths: options?.excludedPaths ?? DEFAULT_EXCLUDED_PATHS,
 		},
-		capabilities: ["read:content", "network:fetch", "page:inject"],
-		allowedHosts: ["api.lemonsqueezy.com"],
+		capabilities: ["read:content", "page:inject"],
 		storage: {
 			events: {
 				indexes: [
@@ -79,17 +78,11 @@ export function analyticsHub(options?: AnalyticsHubOptions): PluginDescriptor {
 		adminWidgets: [
 			{ id: "site-overview", title: "Site Overview", size: "full" },
 		],
-			admin: {
-				settingsSchema: {
-					licenseKey: {
-						type: "secret",
-						label: "Pro License Key",
-						description:
-							"Paste your Lemon Squeezy license key to unlock Pro features on this site.",
-					},
-					excludedPaths: {
-						type: "string",
-						label: "Excluded Paths",
+		admin: {
+			settingsSchema: {
+				excludedPaths: {
+					type: "string",
+					label: "Excluded Paths",
 					description:
 						"Comma-separated path prefixes to exclude from tracking (e.g. /_emdash/,/admin/)",
 					default: DEFAULT_EXCLUDED_PATHS,
@@ -105,8 +98,8 @@ export function analyticsHub(options?: AnalyticsHubOptions): PluginDescriptor {
 					type: "number",
 					label: "Data Retention (days)",
 					description:
-						"How long to keep raw event data. Free: 30 days. Pro: up to 365 days.",
-					default: 30,
+						"How long to keep raw event data. Default: 365 days.",
+					default: 365,
 				},
 			},
 		},

@@ -6,7 +6,7 @@ If you discover a security vulnerability in em-analytics-hub, please report it r
 
 **Do not open a public issue for security vulnerabilities.**
 
-Instead, please email: **facuzarate04@gmail.com**
+Instead, please email: **hola@r4mus.com**
 
 Include:
 - Description of the vulnerability

@@ -55,33 +55,22 @@ function makeRouteCtx(url: string) {
 // ─── handleStats ───────────────────────────────────────────────────────────
 
 describe("handleStats route", () => {
-	it("returns aggregated stats with plan", async () => {
+	it("returns aggregated stats", async () => {
 		const ctx = makeCtx([
 			makeDailyStats({ views: 50, visitors: ["a", "b"], reads: 10, referrers: { "google.com": 5 } }),
 		]);
 		const result = await handleStats(makeRouteCtx("https://example.com/stats?days=7"), ctx);
 
-		expect(result.plan).toBe("free");
 		expect(result.views).toBe(50);
 		expect(result.visitors).toBe(2);
 		expect(result.reads).toBe(10);
 		expect(result.referrers).toEqual({ "google.com": 5 });
 	});
 
-	it("excludes countries on free plan", async () => {
+	it("includes countries", async () => {
 		const ctx = makeCtx([
 			makeDailyStats({ countries: { US: 10 } }),
 		]);
-		const result = await handleStats(makeRouteCtx("https://example.com/stats"), ctx);
-
-		expect(result.countries).toBeUndefined();
-	});
-
-	it("includes countries on pro plan", async () => {
-		const ctx = makeCtx(
-			[makeDailyStats({ countries: { US: 10 } })],
-			{ "state:license_cache": { plan: "pro", status: "active", instanceId: "x", siteUrl: "", validUntil: "", checkedAt: "", graceEndsAt: "" } },
-		);
 		const result = await handleStats(makeRouteCtx("https://example.com/stats"), ctx);
 
 		expect(result.countries).toEqual({ US: 10 });
@@ -99,14 +88,13 @@ describe("handleStats route", () => {
 // ─── handleTopPages ────────────────────────────────────────────────────────
 
 describe("handleTopPages route", () => {
-	it("returns ranked pages with plan", async () => {
+	it("returns ranked pages", async () => {
 		const ctx = makeCtx([
 			makeDailyStats({ pathname: "/a", views: 5 }),
 			makeDailyStats({ pathname: "/b", views: 20 }),
 		]);
 		const result = await handleTopPages(makeRouteCtx("https://example.com/top-pages"), ctx);
 
-		expect(result.plan).toBe("free");
 		expect((result.pages as any[])[0].pathname).toBe("/b");
 		expect((result.pages as any[])[1].pathname).toBe("/a");
 	});
@@ -133,13 +121,12 @@ describe("handleTopPages route", () => {
 // ─── handleReferrers ───────────────────────────────────────────────────────
 
 describe("handleReferrers route", () => {
-	it("returns sorted referrers with plan", async () => {
+	it("returns sorted referrers", async () => {
 		const ctx = makeCtx([
 			makeDailyStats({ referrers: { "google.com": 10, "twitter.com": 30 } }),
 		]);
 		const result = await handleReferrers(makeRouteCtx("https://example.com/referrers"), ctx);
 
-		expect(result.plan).toBe("free");
 		const refs = result.referrers as any[];
 		expect(refs[0]).toEqual({ domain: "twitter.com", count: 30 });
 		expect(refs[1]).toEqual({ domain: "google.com", count: 10 });
@@ -165,7 +152,7 @@ describe("handleReferrers route", () => {
 // ─── handleCampaigns ──────────────────────────────────────────────────────
 
 describe("handleCampaigns route", () => {
-	it("returns UTM breakdown with plan", async () => {
+	it("returns UTM breakdown", async () => {
 		const ctx = makeCtx([
 			makeDailyStats({
 				utmSources: { twitter: 10, newsletter: 20 },
@@ -175,7 +162,6 @@ describe("handleCampaigns route", () => {
 		]);
 		const result = await handleCampaigns(makeRouteCtx("https://example.com/campaigns"), ctx);
 
-		expect(result.plan).toBe("free");
 		expect((result.sources as any[])[0]).toEqual({ name: "newsletter", count: 20 });
 		expect((result.mediums as any[])[0]).toEqual({ name: "social", count: 5 });
 		expect((result.campaigns as any[])[0]).toEqual({ name: "launch", count: 3 });

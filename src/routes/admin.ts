@@ -3,12 +3,8 @@
 // ---------------------------------------------------------------------------
 
 import type { PluginContext, RouteContext } from "emdash";
-import type { LicenseProvider } from "../types.js";
-import { canViewFunnels, canViewGoals, getLicense, validateLicense } from "../license/features.js";
-import { KV_KEYS } from "../constants.js";
 import { buildDashboard } from "../admin/dashboard.js";
 import { buildWidget } from "../admin/widget.js";
-import { handleDeactivateLicense } from "../admin/license.js";
 import { buildCatalogFromStorage } from "../admin/catalog.js";
 import {
 	createFunnelDefinition,
@@ -24,18 +20,8 @@ import {
 } from "../admin/config.js";
 import {
 	buildFunnelsPage,
-	buildFunnelsUpgradePage,
 	buildGoalsPage,
-	buildGoalsUpgradePage,
 } from "../admin/config-pages.js";
-
-/** License provider injected by sandbox-entry. */
-let _provider: LicenseProvider | null = null;
-
-/** Called by sandbox-entry to inject the license provider. */
-export function setLicenseProvider(provider: LicenseProvider): void {
-	_provider = provider;
-}
 
 /**
  * Handles admin UI interactions (page_load, form_submit, block_action).
@@ -54,36 +40,23 @@ export async function handleAdmin(
 		value?: unknown;
 	};
 
-	const license = await getLicense(ctx.kv);
-
-	// ─── Dashboard Widget ──────────���─────────────────────────────
+	// ─── Dashboard Widget ────────────────────────────────────────
 	if (
 		interaction.type === "page_load" &&
 		interaction.page === "widget:site-overview"
 	) {
-		return buildWidget(ctx, license);
+		return buildWidget(ctx);
 	}
 
-	// ─── Analytics Page ───────────��─────────────────────────��────
+	// ─── Analytics Page ──────────────────────────────────────────
 	if (
 		interaction.type === "page_load" &&
 		interaction.page === "/analytics"
 	) {
-		if (_provider) {
-			const fromSettings = (await ctx.kv.get<string>(KV_KEYS.SETTINGS_LICENSE_KEY)) ?? "";
-			const fromEnv = typeof process !== "undefined" ? (process.env?.ANALYTICS_HUB_LICENSE_KEY ?? "") : "";
-			const licenseKey = fromSettings || fromEnv;
-			const siteUrl = (ctx as any).site?.url ?? (ctx as any).url?.("/") ?? "unknown";
-			const updated = await validateLicense(ctx.kv, _provider, siteUrl, licenseKey);
-			return buildDashboard(ctx, 7, updated);
-		}
-		return buildDashboard(ctx, 7, license);
+		return buildDashboard(ctx, 7);
 	}
 
 	if (interaction.type === "page_load" && interaction.page === "/analytics/goals") {
-		if (!canViewGoals(license)) {
-			return buildGoalsUpgradePage();
-		}
 		const [goals, catalog] = await Promise.all([
 			loadGoalDefinitions(ctx),
 			buildCatalogFromStorage(ctx),
@@ -92,9 +65,6 @@ export async function handleAdmin(
 	}
 
 	if (interaction.type === "page_load" && interaction.page === "/analytics/funnels") {
-		if (!canViewFunnels(license)) {
-			return buildFunnelsUpgradePage();
-		}
 		const [funnels, catalog, stepCount] = await Promise.all([
 			loadFunnelDefinitions(ctx),
 			buildCatalogFromStorage(ctx),
@@ -103,7 +73,7 @@ export async function handleAdmin(
 		return buildFunnelsPage({ funnels, catalog, stepCount });
 	}
 
-	// ─── Date Range Change ───────────���───────────────────────────
+	// ─── Date Range Change ───────────────────────────────────────
 	if (
 		interaction.type === "form_submit" &&
 		interaction.action_id === "apply_range"
@@ -112,20 +82,10 @@ export async function handleAdmin(
 			(interaction.values?.range as string) ?? "7",
 			10,
 		);
-		return buildDashboard(ctx, days, license);
-	}
-
-	// ─── License: Deactivate ───────���─────────────────────────────
-	if (
-		interaction.type === "form_submit" &&
-		interaction.action_id === "deactivate_license"
-	) {
-		if (!_provider) return { blocks: [] };
-		return handleDeactivateLicense(ctx, _provider);
+		return buildDashboard(ctx, days);
 	}
 
 	if (interaction.type === "form_submit" && interaction.action_id === "add_goal_preset") {
-		if (!canViewGoals(license)) return buildGoalsUpgradePage();
 		const preset = String(interaction.values?.goal_preset ?? "");
 		const next = createGoalPreset(preset);
 		const goals = await loadGoalDefinitions(ctx);
@@ -137,7 +97,6 @@ export async function handleAdmin(
 	}
 
 	if (interaction.type === "form_submit" && interaction.action_id === "save_goal") {
-		if (!canViewGoals(license)) return buildGoalsUpgradePage();
 		const type = String(interaction.values?.goal_type ?? "page") as "page" | "form" | "event";
 		const target = String(
 			type === "page"
@@ -157,7 +116,6 @@ export async function handleAdmin(
 	}
 
 	if (interaction.type === "form_submit" && interaction.action_id === "delete_goal") {
-		if (!canViewGoals(license)) return buildGoalsUpgradePage();
 		const goalId = String(interaction.values?.goal_id ?? "");
 		const goals = (await loadGoalDefinitions(ctx)).filter((goal) => goal.id !== goalId);
 		await saveGoalDefinitions(ctx, goals);
@@ -165,7 +123,6 @@ export async function handleAdmin(
 	}
 
 	if (interaction.type === "form_submit" && interaction.action_id === "add_funnel_preset") {
-		if (!canViewFunnels(license)) return buildFunnelsUpgradePage();
 		const preset = String(interaction.values?.funnel_preset ?? "");
 		const next = createFunnelPreset(preset);
 		const funnels = await loadFunnelDefinitions(ctx);
@@ -181,7 +138,6 @@ export async function handleAdmin(
 	}
 
 	if (interaction.type === "block_action" && interaction.action_id === "add_funnel_step") {
-		if (!canViewFunnels(license)) return buildFunnelsUpgradePage();
 		const current = await loadFunnelBuilderStepCount(ctx);
 		await saveFunnelBuilderStepCount(ctx, current + 1);
 		return buildFunnelsPage({
@@ -192,7 +148,6 @@ export async function handleAdmin(
 	}
 
 	if (interaction.type === "block_action" && interaction.action_id === "remove_funnel_step") {
-		if (!canViewFunnels(license)) return buildFunnelsUpgradePage();
 		const current = await loadFunnelBuilderStepCount(ctx);
 		await saveFunnelBuilderStepCount(ctx, current - 1);
 		return buildFunnelsPage({
@@ -203,7 +158,6 @@ export async function handleAdmin(
 	}
 
 	if (interaction.type === "form_submit" && interaction.action_id === "save_funnel") {
-		if (!canViewFunnels(license)) return buildFunnelsUpgradePage();
 		const name = String(interaction.values?.funnel_name ?? "").trim();
 		const active = Boolean(interaction.values?.funnel_active ?? true);
 		const stepCount = await loadFunnelBuilderStepCount(ctx);
@@ -236,7 +190,6 @@ export async function handleAdmin(
 	}
 
 	if (interaction.type === "form_submit" && interaction.action_id === "delete_funnel") {
-		if (!canViewFunnels(license)) return buildFunnelsUpgradePage();
 		const funnelId = String(interaction.values?.funnel_id ?? "");
 		const funnels = (await loadFunnelDefinitions(ctx)).filter((funnel) => funnel.id !== funnelId);
 		await saveFunnelDefinitions(ctx, funnels);
