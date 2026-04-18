@@ -3,7 +3,6 @@
 // ---------------------------------------------------------------------------
 
 import type { PluginContext } from "emdash";
-import type { LicenseCache } from "../types.js";
 import { dateNDaysAgo, today } from "../helpers/date.js";
 import { formatNumber, calculateTrend } from "../helpers/format.js";
 import { statsBlock, tableBlock } from "./components.js";
@@ -12,10 +11,9 @@ import { reportingBackend, reportingStorage } from "../reporting/backend.js";
 
 export async function buildWidget(
 	ctx: PluginContext,
-	_license: LicenseCache,
 ): Promise<Record<string, unknown>> {
 	const storage = reportingStorage(ctx);
-	const backend = reportingBackend;
+	const backend = reportingBackend();
 
 	const [report, prevReport, topPages] = await Promise.all([
 		getStatsReport(backend, { dateFrom: dateNDaysAgo(7), dateTo: today() }, storage),

@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
-import { extractPages, extractForms, extractEventNames, buildCatalogFromStorage } from "../admin/catalog.js";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { extractForms, extractEventNames, buildCatalogFromStorage } from "../admin/catalog.js";
 import type { DailyStats, CustomEvent } from "../types.js";
 import { normalizeDailyStats } from "../helpers/aggregation.js";
+import { resetRuntime } from "../runtime/resolver.js";
 
 function makeDailyStats(overrides: Partial<DailyStats> = {}): DailyStats {
 	return normalizeDailyStats({ pathname: "/test", date: "2026-04-01", ...overrides });
@@ -17,39 +18,6 @@ function makeCustomEvent(overrides: Partial<CustomEvent> = {}): CustomEvent {
 		...overrides,
 	};
 }
-
-// ─── extractPages ──────────────────────────────────────────────────────────
-
-describe("extractPages", () => {
-	it("extracts unique pathnames", () => {
-		const items = [
-			{ id: "1", data: makeDailyStats({ pathname: "/a" }) },
-			{ id: "2", data: makeDailyStats({ pathname: "/b" }) },
-			{ id: "3", data: makeDailyStats({ pathname: "/a" }) },
-		];
-		expect(extractPages(items)).toEqual(["/a", "/b"]);
-	});
-
-	it("filters empty pathnames", () => {
-		const items = [
-			{ id: "1", data: makeDailyStats({ pathname: "" }) },
-			{ id: "2", data: makeDailyStats({ pathname: "/valid" }) },
-		];
-		expect(extractPages(items)).toEqual(["/valid"]);
-	});
-
-	it("respects limit", () => {
-		const items = Array.from({ length: 60 }, (_, i) => ({
-			id: String(i),
-			data: makeDailyStats({ pathname: `/page-${i}` }),
-		}));
-		expect(extractPages(items, 10)).toHaveLength(10);
-	});
-
-	it("returns empty for no data", () => {
-		expect(extractPages([])).toEqual([]);
-	});
-});
 
 // ─── extractForms ──────────────────────────────────────────────────────────
 
@@ -96,7 +64,7 @@ describe("extractForms", () => {
 	});
 });
 
-// ──��� extractEventNames ─────────────────────────────────────────────────────
+// ─── extractEventNames ─────────────────────────────────────────────────────
 
 describe("extractEventNames", () => {
 	it("extracts unique event names", () => {
@@ -132,6 +100,14 @@ describe("extractEventNames", () => {
 // ─── buildCatalogFromStorage ───────────────────────────────────────────────
 
 describe("buildCatalogFromStorage", () => {
+	beforeEach(() => {
+		resetRuntime();
+	});
+
+	afterEach(() => {
+		resetRuntime();
+	});
+
 	function makeCtx(stats: DailyStats[], customEvents: CustomEvent[]) {
 		return {
 			kv: { get: vi.fn(async () => null), set: vi.fn() },
@@ -164,11 +140,11 @@ describe("buildCatalogFromStorage", () => {
 		} as any;
 	}
 
-	it("builds catalog from stats and custom events", async () => {
+	it("discovers pages, event names, and forms all via reporting backend", async () => {
 		const ctx = makeCtx(
 			[
-				makeDailyStats({ pathname: "/blog" }),
-				makeDailyStats({ pathname: "/about" }),
+				makeDailyStats({ pathname: "/blog", views: 10 }),
+				makeDailyStats({ pathname: "/about", views: 5 }),
 			],
 			[
 				makeCustomEvent({ name: "form_submit", props: { form: "newsletter" } }),
@@ -177,11 +153,14 @@ describe("buildCatalogFromStorage", () => {
 		);
 		const catalog = await buildCatalogFromStorage(ctx);
 
+		// Pages come from reporting backend (getTopPages)
 		expect(catalog.pages).toContain("/about");
 		expect(catalog.pages).toContain("/blog");
-		expect(catalog.forms).toContain("newsletter");
+		// Event names come from reporting backend (getCustomEvents)
 		expect(catalog.events).toContain("signup");
 		expect(catalog.events).toContain("form_submit");
+		// Forms come from reporting backend (getDetectedForms)
+		expect(catalog.forms).toContain("newsletter");
 	});
 
 	it("returns empty catalog for no data", async () => {
@@ -193,12 +172,45 @@ describe("buildCatalogFromStorage", () => {
 		expect(catalog.events).toEqual([]);
 	});
 
+	it("event names come from reporting backend, not raw custom_events", async () => {
+		// The reporting backend returns events sorted by count descending,
+		// so catalog event names reflect that ordering (not insertion order).
+		const ctx = makeCtx(
+			[],
+			[
+				makeCustomEvent({ name: "rare_event" }),
+				makeCustomEvent({ name: "popular_event" }),
+				makeCustomEvent({ name: "popular_event" }),
+				makeCustomEvent({ name: "popular_event" }),
+			],
+		);
+		const catalog = await buildCatalogFromStorage(ctx);
+
+		// Both events present — popular_event has higher count via reporting backend
+		expect(catalog.events).toContain("rare_event");
+		expect(catalog.events).toContain("popular_event");
+	});
+
+	it("forms detected via reporting backend (getDetectedForms)", async () => {
+		const ctx = makeCtx(
+			[],
+			[
+				makeCustomEvent({ name: "form_submit", props: { form: "contact" } }),
+				makeCustomEvent({ name: "newsletter_submit", props: { source: "footer" } }),
+			],
+		);
+		const catalog = await buildCatalogFromStorage(ctx);
+
+		expect(catalog.forms).toContain("contact");
+		expect(catalog.forms).toContain("footer");
+	});
+
 	it("sorts entries alphabetically", async () => {
 		const ctx = makeCtx(
 			[
-				makeDailyStats({ pathname: "/z" }),
-				makeDailyStats({ pathname: "/a" }),
-				makeDailyStats({ pathname: "/m" }),
+				makeDailyStats({ pathname: "/z", views: 1 }),
+				makeDailyStats({ pathname: "/a", views: 1 }),
+				makeDailyStats({ pathname: "/m", views: 1 }),
 			],
 			[],
 		);

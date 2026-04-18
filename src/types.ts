@@ -88,9 +88,9 @@ export interface TrackPayload {
 	um?: string;
 	/** UTM campaign */
 	uc?: string;
-	/** UTM term (Pro) */
+	/** UTM term */
 	ut?: string;
-	/** UTM content (Pro) */
+	/** UTM content */
 	ux?: string;
 	/** Seconds of active attention (ping events) */
 	s?: number;
@@ -108,7 +108,6 @@ export interface TrackPayload {
 
 /** Aggregated stats returned by the /stats admin API. */
 export interface AggregatedStats {
-	plan: string;
 	views: number;
 	visitors: number;
 	reads: number;
@@ -139,68 +138,6 @@ export interface TopPageEntry {
 	avgTime: number;
 	engagedRate: number;
 	recircRate: number;
-}
-
-// ---------------------------------------------------------------------------
-// License / Plan
-// ---------------------------------------------------------------------------
-
-export type PlanId = "free" | "pro" | "business";
-
-export interface PlanDefinition {
-	id: PlanId;
-	maxRetentionDays: number;
-	maxDateRange: number;
-	features: string[];
-}
-
-/** Cached license state stored in KV. */
-export interface LicenseCache {
-	plan: PlanId;
-	/** ISO 8601 — when the license/subscription expires. Empty for free. */
-	validUntil: string;
-	/** ISO 8601 — last successful validation timestamp. */
-	checkedAt: string;
-	/** License status from the provider. */
-	status: LicenseStatus;
-	/** Provider-specific instance ID (e.g. Lemon Squeezy instance). */
-	instanceId: string;
-	/** The site URL this license is activated for. */
-	siteUrl: string;
-	/** ISO 8601 — when grace period ends after validation failure. */
-	graceEndsAt: string;
-}
-
-export type LicenseStatus = "active" | "expired" | "inactive" | "unknown";
-
-// ---------------------------------------------------------------------------
-// License provider abstraction
-// ---------------------------------------------------------------------------
-
-/** Result of a license activation or validation call. */
-export interface LicenseCheckResult {
-	valid: boolean;
-	plan: PlanId;
-	status: LicenseStatus;
-	instanceId: string;
-	validUntil: string;
-	error?: string;
-}
-
-/**
- * Abstract interface for license providers.
- * The plugin calls this interface; the implementation handles the specifics
- * of whichever platform is used (Lemon Squeezy, custom Worker, etc.).
- */
-export interface LicenseProvider {
-	/** Activate a license key for a specific site. */
-	activate(licenseKey: string, siteUrl: string): Promise<LicenseCheckResult>;
-
-	/** Validate an already-activated license. */
-	validate(licenseKey: string, instanceId: string): Promise<LicenseCheckResult>;
-
-	/** Deactivate a license from a site. */
-	deactivate(licenseKey: string, instanceId: string): Promise<LicenseCheckResult>;
 }
 
 // ---------------------------------------------------------------------------

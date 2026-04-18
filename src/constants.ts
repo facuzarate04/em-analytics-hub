@@ -2,7 +2,7 @@
 // em-analytics-hub — Constants and defaults
 // ---------------------------------------------------------------------------
 
-import type { EventType, PlanDefinition } from "./types.js";
+import type { EventType } from "./types.js";
 
 /** All valid event types. */
 export const EVENT_TYPES: EventType[] = [
@@ -18,8 +18,8 @@ export const EVENT_TYPES: EventType[] = [
 /** Default excluded path prefixes. */
 export const DEFAULT_EXCLUDED_PATHS = "/_emdash/,/admin/";
 
-/** Default data retention in days (free plan). */
-export const DEFAULT_RETENTION_DAYS = 30;
+/** Default data retention in days. */
+export const DEFAULT_RETENTION_DAYS = 365;
 
 /** Maximum custom event property keys allowed per event. */
 export const MAX_CUSTOM_EVENT_PROPS = 20;
@@ -42,124 +42,8 @@ export const DEFAULT_TOP_PAGES_LIMIT = 10;
 /** Default date range in days for admin queries. */
 export const DEFAULT_DATE_RANGE_DAYS = 7;
 
-// ---------------------------------------------------------------------------
-// Plan definitions
-// ---------------------------------------------------------------------------
-
-// Feature gating matrix:
-//
-// Feature                              | Free | Pro  | Business
-// -------------------------------------|------|------|--------
-// Dashboard                            |  ✅  |  ✅  |  ✅
-// Top Pages                            |  ✅  |  ✅  |  ✅
-// Referrers                            |  ✅  |  ✅  |  ✅
-// Template Segmentation                |  ✅  |  ✅  |  ✅
-// Collection Segmentation              |  ✅  |  ✅  |  ✅
-// Native Tracking                      |  ✅  |  ✅  |  ✅
-// UTM — source/medium/campaign         |  ✅  |  ✅  |  ✅
-// UTM — term/content                   |  ❌  |  ✅  |  ✅
-// Campaign intelligence                |  ❌  |  ✅  |  ✅
-// Custom Events — tracking             |  ✅  |  ✅  |  ✅
-// Custom Events — list + counts        |  ✅  |  ✅  |  ✅
-// Custom Events — trend by event       |  ✅  |  ✅  |  ✅
-// Custom Events — property breakdowns  |  ❌  |  ✅  |  ✅
-// Custom Events — property filters     |  ❌  |  ✅  |  ✅
-// Custom Events — funnels              |  ❌  |  ✅  |  ✅
-// Countries                            |  ❌  |  ✅  |  ✅
-// Goals                                |  ❌  |  ✅  |  ✅
-// Forms Analytics                      |  ❌  |  ✅  |  ✅
-// Period Comparison                    |  ❌  |  ✅  |  ✅
-// SSO                                  |  ❌  |  ❌  |  ✅
-// Advanced Permissions                 |  ❌  |  ❌  |  ✅
-// Executive Reports                    |  ❌  |  ❌  |  ✅
-// White Label                          |  ❌  |  ❌  |  ✅
-// Priority Support / SLA               |  ❌  |  ❌  |  ✅
-
-export const PLANS: Record<string, PlanDefinition> = {
-	free: {
-		id: "free",
-		maxRetentionDays: 30,
-		maxDateRange: 30,
-		features: [
-			// Core dashboard
-			"dashboard",
-			"top_pages",
-			"referrers",
-			"template_segmentation",
-			"collection_segmentation",
-			"native_tracking",
-			// UTM basics (source, medium, campaign — no term/content)
-			"utm_basic",
-			// Custom events (tracking + list + counts + trends — no props/funnels)
-			"custom_events_tracking",
-			"custom_events_list",
-			"custom_events_trends",
-		],
-	},
-	pro: {
-		id: "pro",
-		maxRetentionDays: 365,
-		maxDateRange: 365,
-		features: [
-			// All Free features
-			"dashboard",
-			"top_pages",
-			"referrers",
-			"template_segmentation",
-			"collection_segmentation",
-			"native_tracking",
-			"utm_basic",
-			"custom_events_tracking",
-			"custom_events_list",
-			"custom_events_trends",
-			// UTM advanced
-			"utm_term_content",
-			"campaign_intelligence",
-			// Custom events advanced
-			"custom_events_property_breakdowns",
-			"custom_events_property_filters",
-			"custom_events_funnels",
-			// Pro features
-			"countries",
-			"goals",
-			"forms_analytics",
-			"period_comparison",
-		],
-	},
-	business: {
-		id: "business",
-		maxRetentionDays: 730,
-		maxDateRange: 730,
-		features: [
-			// All Pro features
-			"dashboard",
-			"top_pages",
-			"referrers",
-			"template_segmentation",
-			"collection_segmentation",
-			"native_tracking",
-			"utm_basic",
-			"custom_events_tracking",
-			"custom_events_list",
-			"custom_events_trends",
-			"utm_term_content",
-			"campaign_intelligence",
-			"custom_events_property_breakdowns",
-			"custom_events_property_filters",
-			"custom_events_funnels",
-			"countries",
-			"goals",
-			"forms_analytics",
-			"period_comparison",
-			// Business-only features
-			"sso",
-			"advanced_permissions",
-			"executive_reports",
-			"white_label",
-			"priority_support",
-		],
-	},
-};
+/** Maximum allowed date range in days. */
+export const MAX_DATE_RANGE_DAYS = 730;
 
 // ---------------------------------------------------------------------------
 // KV keys
@@ -167,12 +51,9 @@ export const PLANS: Record<string, PlanDefinition> = {
 
 export const KV_KEYS = {
 	DAILY_SALT: "state:daily_salt",
-	LICENSE_CACHE: "state:license_cache",
-	LICENSE_KEY: "state:license_key",
 	GOAL_DEFINITIONS: "state:goal_definitions",
 	FUNNEL_DEFINITIONS: "state:funnel_definitions",
 	FUNNEL_BUILDER_STEPS: "state:funnel_builder_steps",
-	SETTINGS_LICENSE_KEY: "settings:licenseKey",
 	SETTINGS_EXCLUDED_PATHS: "settings:excludedPaths",
 	SETTINGS_EXCLUDED_IPS: "settings:excludedIPs",
 	SETTINGS_RETENTION_DAYS: "settings:retentionDays",
@@ -185,5 +66,4 @@ export const KV_KEYS = {
 export const CRON_JOBS = {
 	ROTATE_SALT: "rotate-salt",
 	PRUNE_EVENTS: "prune-events",
-	VALIDATE_LICENSE: "validate-license",
 } as const;

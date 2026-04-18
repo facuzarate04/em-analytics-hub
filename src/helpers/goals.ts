@@ -4,7 +4,7 @@
 
 import type { CustomEvent, GoalDefinition, GoalMetricRow, RawEvent } from "../types.js";
 
-const PRIORITY_GOALS = [
+export const PRIORITY_GOALS = [
 	"signup_submit",
 	"form_submit",
 	"demo_request",
@@ -13,7 +13,12 @@ const PRIORITY_GOALS = [
 	"plan_select",
 ];
 
-function prettifyGoalName(name: string): string {
+/** Returns true if the event name qualifies as an auto-detected goal candidate. */
+export function isAutoGoalCandidate(name: string): boolean {
+	return PRIORITY_GOALS.includes(name) || name.endsWith("_submit") || name.endsWith("_request");
+}
+
+export function prettifyGoalName(name: string): string {
 	return name.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
@@ -25,12 +30,7 @@ export function aggregateGoals(
 
 	for (const item of items) {
 		const event = item.data;
-		const isCandidate =
-			PRIORITY_GOALS.includes(event.name) ||
-			event.name.endsWith("_submit") ||
-			event.name.endsWith("_request");
-
-		if (!isCandidate) continue;
+		if (!isAutoGoalCandidate(event.name)) continue;
 
 		let bucket = byName.get(event.name);
 		if (!bucket) {

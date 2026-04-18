@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PortableReportingBackend } from "../backends/portable/reporting.js";
-import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport } from "../reporting/service.js";
+import { getStatsReport, getTopPagesReport, getReferrersReport, getCampaignsReport, getCampaignIntelligenceReport, getCustomEventsReport, getDetectedFormsReport, getPropertyBreakdownsReport, getGoalsReport, getFormsAnalyticsReport, getFunnelsReport } from "../reporting/service.js";
 import type { ReportingStorage } from "../reporting/types.js";
-import type { DailyStats } from "../types.js";
+import type { DailyStats, RawEvent } from "../types.js";
 import { normalizeDailyStats } from "../helpers/aggregation.js";
 
 function makeDailyStats(overrides: Partial<DailyStats> = {}): DailyStats {
@@ -13,7 +13,30 @@ function makeDailyStats(overrides: Partial<DailyStats> = {}): DailyStats {
 	});
 }
 
-function makeStorage(records: DailyStats[]): ReportingStorage {
+function makeRawEvent(overrides: Partial<RawEvent> = {}): RawEvent {
+	return {
+		pathname: "/blog/post",
+		type: "pageview",
+		referrer: "",
+		visitorId: "v-1",
+		country: "",
+		template: "",
+		collection: "",
+		utmSource: "",
+		utmMedium: "",
+		utmCampaign: "",
+		utmTerm: "",
+		utmContent: "",
+		seconds: 0,
+		scrollDepth: 0,
+		eventName: "",
+		eventProps: "",
+		createdAt: "2026-04-01T12:00:00.000Z",
+		...overrides,
+	};
+}
+
+function makeStorage(records: DailyStats[], customEvents: any[] = [], rawEvents: RawEvent[] = []): ReportingStorage {
 	return {
 		daily_stats: {
 			get: vi.fn(),
@@ -27,7 +50,31 @@ function makeStorage(records: DailyStats[]): ReportingStorage {
 			}),
 			deleteMany: vi.fn(),
 		},
-	};
+		custom_events: {
+			get: vi.fn(),
+			put: vi.fn(),
+			query: vi.fn(async ({ cursor }: any) => {
+				if (cursor) return { items: [], cursor: undefined };
+				return {
+					items: customEvents.map((data, i) => ({ id: String(i), data })),
+					cursor: undefined,
+				};
+			}),
+			deleteMany: vi.fn(),
+		},
+		events: {
+			get: vi.fn(),
+			put: vi.fn(),
+			query: vi.fn(async ({ cursor }: any) => {
+				if (cursor) return { items: [], cursor: undefined };
+				return {
+					items: rawEvents.map((data, i) => ({ id: String(i), data })),
+					cursor: undefined,
+				};
+			}),
+			deleteMany: vi.fn(),
+		},
+	} as any;
 }
 
 // ─── PortableReportingBackend ──────────────────────────────────────────────
@@ -319,13 +366,392 @@ describe("PortableReportingBackend", () => {
 			expect(result[0].engagedViews).toBe(30);
 		});
 	});
+
+	describe("getCustomEvents", () => {
+		it("returns empty for no custom events", async () => {
+			const storage = makeStorage([], []);
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
+			expect(result.events).toEqual([]);
+			expect(result.trends).toEqual({});
+		});
+
+		it("returns events sorted by count descending", async () => {
+			const events = [
+				{ name: "click", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "click", pathname: "/p", props: {}, visitorId: "v2", createdAt: "2026-04-01T13:00:00.000Z" },
+				{ name: "signup", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T14:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
+			expect(result.events[0]).toEqual({ name: "click", count: 2 });
+			expect(result.events[1]).toEqual({ name: "signup", count: 1 });
+		});
+
+		it("respects limit", async () => {
+			const events = [
+				{ name: "a", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "b", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T13:00:00.000Z" },
+				{ name: "c", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T14:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 2 }, storage);
+			expect(result.events).toHaveLength(2);
+		});
+
+		it("returns trends for top events", async () => {
+			const events = [
+				{ name: "click", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T10:00:00.000Z" },
+				{ name: "click", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-02T10:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getCustomEvents({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
+			expect(result.trends["click"]).toBeDefined();
+			expect(result.trends["click"]).toHaveLength(2);
+		});
+	});
+
+	describe("getDetectedForms", () => {
+		it("returns empty for no data", async () => {
+			const storage = makeStorage([], []);
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+			expect(result).toEqual([]);
+		});
+
+		it("detects form_submit events with props.form", async () => {
+			const events = [
+				{ name: "form_submit", pathname: "/contact", props: { form: "newsletter" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "form_submit", pathname: "/signup", props: { form: "signup" }, visitorId: "v2", createdAt: "2026-04-01T13:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+			expect(result).toContain("newsletter");
+			expect(result).toContain("signup");
+		});
+
+		it("detects *_submit events with props.source", async () => {
+			const events = [
+				{ name: "newsletter_submit", pathname: "/page", props: { source: "sidebar" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+			expect(result).toEqual(["sidebar"]);
+		});
+
+		it("falls back to pathname when form/source props missing", async () => {
+			const events = [
+				{ name: "form_submit", pathname: "/contact", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+			expect(result).toEqual(["/contact"]);
+		});
+
+		it("ignores non-submit events", async () => {
+			const events = [
+				{ name: "click", pathname: "/page", props: { form: "test" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+			expect(result).toEqual([]);
+		});
+
+		it("deduplicates form names", async () => {
+			const events = [
+				{ name: "form_submit", pathname: "/p", props: { form: "newsletter" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "form_submit", pathname: "/p", props: { form: "newsletter" }, visitorId: "v2", createdAt: "2026-04-01T13:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getDetectedForms({ dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+			expect(result).toEqual(["newsletter"]);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// getPropertyBreakdowns
+	// -----------------------------------------------------------------------
+
+	describe("getPropertyBreakdowns", () => {
+		it("returns empty for no events", async () => {
+			const storage = makeStorage([], []);
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" },
+				storage,
+			);
+			expect(result).toEqual({});
+		});
+
+		it("returns prop key/value counts for a specific event", async () => {
+			const events = [
+				{ name: "signup", pathname: "/p", props: { plan: "pro", source: "header" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "signup", pathname: "/p", props: { plan: "pro" }, visitorId: "v2", createdAt: "2026-04-02T12:00:00.000Z" },
+				{ name: "signup", pathname: "/p", props: { plan: "free" }, visitorId: "v3", createdAt: "2026-04-03T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" },
+				storage,
+			);
+			expect(result.plan).toEqual({ pro: 2, free: 1 });
+			expect(result.source).toEqual({ header: 1 });
+		});
+
+		it("filters by event name", async () => {
+			const events = [
+				{ name: "signup", pathname: "/p", props: { plan: "pro" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "click", pathname: "/p", props: { target: "button" }, visitorId: "v2", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" },
+				storage,
+			);
+			expect(Object.keys(result)).toEqual(["plan"]);
+		});
+
+		it("respects maxKeys limit", async () => {
+			const events = [
+				{ name: "signup", pathname: "/p", props: { a: "v", b: "v", c: "v" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup", maxKeys: 2 },
+				storage,
+			);
+			expect(Object.keys(result).length).toBe(2);
+		});
+
+		it("respects maxValuesPerKey limit", async () => {
+			const events = [
+				{ name: "signup", pathname: "/p", props: { plan: "pro" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "signup", pathname: "/p", props: { plan: "free" }, visitorId: "v2", createdAt: "2026-04-02T12:00:00.000Z" },
+				{ name: "signup", pathname: "/p", props: { plan: "trial" }, visitorId: "v3", createdAt: "2026-04-03T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getPropertyBreakdowns(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup", maxValuesPerKey: 2 },
+				storage,
+			);
+			expect(Object.keys(result.plan).length).toBe(2);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// getGoals
+	// -----------------------------------------------------------------------
+
+	describe("getGoals", () => {
+		it("returns empty for no data (auto-detect)", async () => {
+			const storage = makeStorage([], []);
+			const result = await backend.getGoals(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100, goals: [] },
+				storage,
+			);
+			expect(result).toEqual([]);
+		});
+
+		it("auto-detects goals from event patterns", async () => {
+			const events = [
+				{ name: "signup_submit", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "signup_submit", pathname: "/p", props: {}, visitorId: "v2", createdAt: "2026-04-02T12:00:00.000Z" },
+				{ name: "purchase", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "plain_click", pathname: "/p", props: {}, visitorId: "v3", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getGoals(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100, goals: [] },
+				storage,
+			);
+			// plain_click is NOT a goal candidate
+			expect(result.length).toBe(2);
+			expect(result[0].completions).toBe(2); // signup_submit
+			expect(result[0].visitors).toBe(2);
+		});
+
+		it("computes configured event goal", async () => {
+			const events = [
+				{ name: "cta_click", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "cta_click", pathname: "/p", props: {}, visitorId: "v2", createdAt: "2026-04-02T12:00:00.000Z" },
+				{ name: "cta_click", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-03T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getGoals({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				totalVisitors: 50,
+				goals: [{ id: "g1", name: "CTA Click", type: "event", target: "cta_click", active: true }],
+			}, storage);
+			expect(result.length).toBe(1);
+			expect(result[0].completions).toBe(3);
+			expect(result[0].visitors).toBe(2);
+			expect(result[0].conversionRate).toBe(4);
+		});
+
+		it("computes configured form goal", async () => {
+			const events = [
+				{ name: "form_submit", pathname: "/p", props: { form: "newsletter" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "form_submit", pathname: "/p", props: { form: "newsletter" }, visitorId: "v2", createdAt: "2026-04-02T12:00:00.000Z" },
+				{ name: "form_submit", pathname: "/p", props: { form: "contact" }, visitorId: "v3", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getGoals({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				totalVisitors: 100,
+				goals: [{ id: "g1", name: "Newsletter", type: "form", target: "newsletter", active: true }],
+			}, storage);
+			expect(result.length).toBe(1);
+			expect(result[0].completions).toBe(2);
+			expect(result[0].visitors).toBe(2);
+		});
+
+		it("computes configured page goal from daily_stats", async () => {
+			const stats = [
+				makeDailyStats({ pathname: "/thank-you", date: "2026-04-01", views: 10, visitors: ["v1", "v2", "v3"] }),
+				makeDailyStats({ pathname: "/thank-you", date: "2026-04-02", views: 5, visitors: ["v1", "v4"] }),
+			];
+			const storage = makeStorage(stats, []);
+			const result = await backend.getGoals({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				totalVisitors: 200,
+				goals: [{ id: "g1", name: "Thank You", type: "page", target: "/thank-you", active: true }],
+			}, storage);
+			expect(result.length).toBe(1);
+			expect(result[0].completions).toBe(15);
+			expect(result[0].visitors).toBe(4); // v1, v2, v3, v4 (v1 deduplicated)
+		});
+
+		it("filters out goals with zero completions", async () => {
+			const storage = makeStorage([], []);
+			const result = await backend.getGoals({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				totalVisitors: 100,
+				goals: [{ id: "g1", name: "Empty", type: "event", target: "nonexistent", active: true }],
+			}, storage);
+			expect(result).toEqual([]);
+		});
+
+		it("skips inactive goals", async () => {
+			const events = [
+				{ name: "signup", pathname: "/p", props: {}, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getGoals({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				totalVisitors: 100,
+				goals: [{ id: "g1", name: "Disabled", type: "event", target: "signup", active: false }],
+			}, storage);
+			expect(result).toEqual([]);
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// getFormsAnalytics
+	// -----------------------------------------------------------------------
+
+	describe("getFormsAnalytics", () => {
+		it("returns empty for no data", async () => {
+			const storage = makeStorage([], []);
+			const result = await backend.getFormsAnalytics(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100 },
+				storage,
+			);
+			expect(result).toEqual([]);
+		});
+
+		it("returns form analytics from submit events", async () => {
+			const events = [
+				{ name: "form_submit", pathname: "/p", props: { form: "newsletter" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+				{ name: "form_submit", pathname: "/p", props: { form: "newsletter" }, visitorId: "v2", createdAt: "2026-04-02T12:00:00.000Z" },
+				{ name: "form_submit", pathname: "/p", props: { form: "contact" }, visitorId: "v3", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getFormsAnalytics(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100 },
+				storage,
+			);
+			expect(result.length).toBe(2);
+			expect(result[0].form).toBe("newsletter");
+			expect(result[0].submissions).toBe(2);
+			expect(result[0].visitors).toBe(2);
+			expect(result[1].form).toBe("contact");
+		});
+
+		it("ignores non-submit events", async () => {
+			const events = [
+				{ name: "click", pathname: "/p", props: { form: "newsletter" }, visitorId: "v1", createdAt: "2026-04-01T12:00:00.000Z" },
+			];
+			const storage = makeStorage([], events);
+			const result = await backend.getFormsAnalytics(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100 },
+				storage,
+			);
+			expect(result).toEqual([]);
+		});
+	});
+
+	describe("getFunnels", () => {
+		it("returns empty for no raw events", async () => {
+			const storage = makeStorage([], [], []);
+			const result = await backend.getFunnels(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", funnels: [] },
+				storage,
+			);
+			expect(result).toEqual([]);
+		});
+
+		it("auto-detects funnel from raw events", async () => {
+			const events = [
+				makeRawEvent({ type: "pageview", visitorId: "v-1", createdAt: "2026-04-01T10:00:00.000Z" }),
+				makeRawEvent({ type: "read", visitorId: "v-1", createdAt: "2026-04-01T10:01:00.000Z" }),
+				makeRawEvent({ type: "pageview", visitorId: "v-2", createdAt: "2026-04-01T11:00:00.000Z" }),
+				makeRawEvent({ type: "read", visitorId: "v-2", createdAt: "2026-04-01T11:01:00.000Z" }),
+			];
+			const storage = makeStorage([], [], events);
+			const result = await backend.getFunnels(
+				{ dateFrom: "2026-04-01", dateTo: "2026-04-07", funnels: [] },
+				storage,
+			);
+			expect(result.length).toBe(1);
+			expect(result[0].name).toBe("Detected Funnel");
+			expect(result[0].rows[0].visitors).toBe(2);
+		});
+
+		it("processes configured funnel with sequential steps", async () => {
+			const events = [
+				makeRawEvent({ type: "pageview", pathname: "/pricing", visitorId: "v-1", createdAt: "2026-04-01T10:00:00.000Z" }),
+				makeRawEvent({ type: "custom", eventName: "cta_click", visitorId: "v-1", createdAt: "2026-04-01T10:01:00.000Z" }),
+				makeRawEvent({ type: "pageview", pathname: "/pricing", visitorId: "v-2", createdAt: "2026-04-01T11:00:00.000Z" }),
+			];
+			const storage = makeStorage([], [], events);
+			const result = await backend.getFunnels({
+				dateFrom: "2026-04-01",
+				dateTo: "2026-04-07",
+				funnels: [{
+					id: "f1",
+					name: "Lead Funnel",
+					active: true,
+					steps: [
+						{ label: "Pricing Page", type: "page", target: "/pricing" },
+						{ label: "CTA Click", type: "event", target: "cta_click" },
+					],
+				}],
+			}, storage);
+
+			expect(result.length).toBe(1);
+			expect(result[0].rows[0]).toMatchObject({ step: "Pricing Page", visitors: 2 });
+			expect(result[0].rows[1]).toMatchObject({ step: "CTA Click", visitors: 1 });
+		});
+	});
 });
 
 // ─── Reporting service ─────────────────────────────────────────────────────
 
 describe("reporting service", () => {
 	it("getStatsReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn().mockResolvedValue({ views: 42 }), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn() };
+		const mockBackend = { getStats: vi.fn().mockResolvedValue({ views: 42 }), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getStatsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07" }, storage);
 
@@ -334,7 +760,7 @@ describe("reporting service", () => {
 	});
 
 	it("getTopPagesReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn().mockResolvedValue([]), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn() };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn().mockResolvedValue([]), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getTopPagesReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
 
@@ -343,7 +769,7 @@ describe("reporting service", () => {
 	});
 
 	it("getReferrersReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn().mockResolvedValue([]), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn() };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn().mockResolvedValue([]), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getReferrersReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 20 }, storage);
 
@@ -352,7 +778,7 @@ describe("reporting service", () => {
 	});
 
 	it("getCampaignsReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn().mockResolvedValue({ sources: [], mediums: [], campaigns: [] }), getCampaignIntelligence: vi.fn() };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn().mockResolvedValue({ sources: [], mediums: [], campaigns: [] }), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getCampaignsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07" }, storage);
 
@@ -361,11 +787,69 @@ describe("reporting service", () => {
 	});
 
 	it("getCampaignIntelligenceReport delegates to backend", async () => {
-		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn().mockResolvedValue([]) };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn().mockResolvedValue([]), getCustomEvents: vi.fn(), getDetectedForms: vi.fn() };
 		const storage = makeStorage([]);
 		const result = await getCampaignIntelligenceReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", dimension: "source" }, storage);
 
 		expect(mockBackend.getCampaignIntelligence).toHaveBeenCalled();
 		expect(result).toEqual([]);
+	});
+
+	it("getCustomEventsReport delegates to backend", async () => {
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn().mockResolvedValue({ events: [], trends: {} }), getDetectedForms: vi.fn() };
+		const storage = makeStorage([]);
+		const result = await getCustomEventsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 10 }, storage);
+
+		expect(mockBackend.getCustomEvents).toHaveBeenCalled();
+		expect(result).toEqual({ events: [], trends: {} });
+	});
+
+	it("getDetectedFormsReport delegates to backend", async () => {
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn().mockResolvedValue(["newsletter", "contact"]), getPropertyBreakdowns: vi.fn() };
+		const storage = makeStorage([]);
+		const result = await getDetectedFormsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", limit: 50 }, storage);
+
+		expect(mockBackend.getDetectedForms).toHaveBeenCalled();
+		expect(result).toEqual(["newsletter", "contact"]);
+	});
+
+	it("getPropertyBreakdownsReport delegates to backend", async () => {
+		const mockResult = { plan: { pro: 5, free: 3 } };
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn().mockResolvedValue(mockResult), getGoals: vi.fn() };
+		const storage = makeStorage([]);
+		const result = await getPropertyBreakdownsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", eventName: "signup" }, storage);
+
+		expect(mockBackend.getPropertyBreakdowns).toHaveBeenCalled();
+		expect(result).toEqual(mockResult);
+	});
+
+	it("getGoalsReport delegates to backend", async () => {
+		const mockResult = [{ goal: "Signup", completions: 10, visitors: 5, conversionRate: 5 }];
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn(), getGoals: vi.fn().mockResolvedValue(mockResult), getFormsAnalytics: vi.fn() };
+		const storage = makeStorage([]);
+		const result = await getGoalsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100, goals: [] }, storage);
+
+		expect(mockBackend.getGoals).toHaveBeenCalled();
+		expect(result).toEqual(mockResult);
+	});
+
+	it("getFormsAnalyticsReport delegates to backend", async () => {
+		const mockResult = [{ form: "newsletter", event: "form_submit", submissions: 10, visitors: 5, submitRate: 5 }];
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn(), getGoals: vi.fn(), getFormsAnalytics: vi.fn().mockResolvedValue(mockResult), getFunnels: vi.fn() };
+		const storage = makeStorage([]);
+		const result = await getFormsAnalyticsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", totalVisitors: 100 }, storage);
+
+		expect(mockBackend.getFormsAnalytics).toHaveBeenCalled();
+		expect(result).toEqual(mockResult);
+	});
+
+	it("getFunnelsReport delegates to backend", async () => {
+		const mockResult = [{ name: "Test Funnel", rows: [{ step: "Step 1", visitors: 10, conversionRate: 100, dropOffRate: 0 }] }];
+		const mockBackend = { getStats: vi.fn(), getTopPages: vi.fn(), getReferrers: vi.fn(), getCampaigns: vi.fn(), getCampaignIntelligence: vi.fn(), getCustomEvents: vi.fn(), getDetectedForms: vi.fn(), getPropertyBreakdowns: vi.fn(), getGoals: vi.fn(), getFormsAnalytics: vi.fn(), getFunnels: vi.fn().mockResolvedValue(mockResult) };
+		const storage = makeStorage([]);
+		const result = await getFunnelsReport(mockBackend, { dateFrom: "2026-04-01", dateTo: "2026-04-07", funnels: [] }, storage);
+
+		expect(mockBackend.getFunnels).toHaveBeenCalled();
+		expect(result).toEqual(mockResult);
 	});
 });

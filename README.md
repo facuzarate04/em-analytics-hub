@@ -2,7 +2,9 @@
 
 CMS-aware, portable, privacy-first analytics for [EmDash](https://github.com/emdash-cms/emdash).
 
-Track pageviews, UTM campaigns, custom events, and more — segmented by route, template, and collection. Works on Cloudflare Workers and Node.js self-hosted.
+Track pageviews, UTM campaigns, custom events, funnels, goals, forms analytics, and more — segmented by route, template, and collection. Works on Cloudflare Workers and Node.js self-hosted.
+
+**100% free and open source.** No license keys, no feature gates, no paid tiers.
 
 <p align="center">
   <img src="./docs/screenshots/overview.png" alt="Analytics overview dashboard" width="49%" />
@@ -41,30 +43,20 @@ import AnalyticsBeacon from "em-analytics-hub/astro";
 
 ## Features
 
-### Free
-
 - Dashboard inside EmDash admin
 - Pageviews and unique visitors
 - Top pages with template and collection segmentation
 - Referrer breakdown
-- UTM attribution (source, medium, campaign)
-- Custom events with counts and trends
-- 30-day data retention
-- 1 site
-- Works on Cloudflare and Node.js
-
-### Pro
-
+- UTM attribution (source, medium, campaign, term, content)
+- Campaign intelligence with engagement metrics per source
+- Custom events with counts, trends, and property breakdowns
 - Funnels
-- Goals
+- Goals (page, form, event)
 - Forms analytics
-- Campaign intelligence
-- Custom event property breakdowns
-- Period comparison
 - Countries breakdown
-- 365-day retention
-- Extended date ranges
-- Up to 3 sites per license
+- Period comparison
+- Configurable data retention (default: 365 days)
+- Works on Cloudflare and Node.js
 
 Goals and funnels can be configured from dedicated admin pages:
 
@@ -88,7 +80,7 @@ Track custom events from your theme or pages:
 window.emAnalytics.track("cta_click", { variant: "hero", page: "pricing" });
 ```
 
-Events appear in the dashboard with counts and trend charts.
+Events appear in the dashboard with counts, trend charts, and property breakdowns.
 
 ## UTM Tracking
 
@@ -98,7 +90,7 @@ UTM parameters are captured automatically from URLs:
 https://yoursite.com/blog/post?utm_source=twitter&utm_medium=social&utm_campaign=spring2026
 ```
 
-Source, medium, and campaign are captured automatically and feed the campaign insights shown in the dashboard.
+Source, medium, campaign, term, and content are captured automatically and feed the campaign insights shown in the dashboard.
 
 ## Template and Collection Metadata
 
@@ -119,26 +111,22 @@ Add meta tags to your theme layouts to enable template and collection segmentati
 - Bot and crawler filtering
 - Configurable excluded paths and IPs
 
-## Pro
-
-One package, Pro unlocked with a valid license key.
-
-1. Purchase a Pro license
-2. Paste the key into the plugin settings in EmDash
-3. Open the Analytics page — Pro features activate on this site
-4. Configure goals and funnels from the plugin admin pages
-
-You can also set `ANALYTICS_HUB_LICENSE_KEY` as an environment variable if you prefer managing licensing at deploy time.
-
 ## Settings
 
 | Setting | Type | Description | Default |
 |---------|------|-------------|---------|
-| Pro License Key | Plugin setting | Lemon Squeezy license key for this site | Empty |
-| `ANALYTICS_HUB_LICENSE_KEY` | Env var | Optional deploy-time fallback license key | Empty |
 | Excluded Paths | Plugin setting | Comma-separated path prefixes to skip | `/_emdash/,/admin/` |
 | Excluded IPs | Plugin setting | Comma-separated IPs to filter | Empty |
-| Data Retention | Plugin setting | Days to keep raw events (Free: 30, Pro: 365) | 30 |
+| Data Retention | Plugin setting | Days to keep raw events | 365 |
+
+## Support the Project
+
+em-analytics-hub is free and open source. If you find it useful, consider supporting the project:
+
+- Star the repository
+- Report bugs and suggest features
+- Contribute code or documentation
+- [Buy me a coffee](https://buymeacoffee.com/facuzarate)
 
 ## License
 

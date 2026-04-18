@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aggregateConfiguredGoals } from "../helpers/goals.js";
 import { aggregateConfiguredFunnel } from "../helpers/funnels.js";
-import { canViewFunnels, canViewGoals, FREE_LICENSE } from "../license/features.js";
 import type { CustomEvent, FunnelDefinition, GoalDefinition, RawEvent } from "../types.js";
 
 function rawEvent(overrides: Partial<RawEvent>): { id: string; data: RawEvent } {
@@ -120,18 +119,5 @@ describe("configured funnels", () => {
 		expect(rows[0]).toMatchObject({ step: "Pricing Page", visitors: 2, conversionRate: 100, dropOffRate: 0 });
 		expect(rows[1]).toMatchObject({ step: "CTA Click", visitors: 2, conversionRate: 100, dropOffRate: 0 });
 		expect(rows[2]).toMatchObject({ step: "Signup Submit", visitors: 1, conversionRate: 50, dropOffRate: 50 });
-	});
-});
-
-describe("pro gating", () => {
-	it("keeps goals and funnels unavailable on free", () => {
-		expect(canViewGoals(FREE_LICENSE)).toBe(false);
-		expect(canViewFunnels(FREE_LICENSE)).toBe(false);
-	});
-
-	it("enables goals and funnels on pro", () => {
-		const proLicense = { ...FREE_LICENSE, plan: "pro" as const, status: "active" as const };
-		expect(canViewGoals(proLicense)).toBe(true);
-		expect(canViewFunnels(proLicense)).toBe(true);
 	});
 });

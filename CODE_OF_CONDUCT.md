@@ -27,7 +27,7 @@ Project maintainers are responsible for clarifying the standards of acceptable b
 
 ## Contact
 
-Report issues to: **facuzarate04@gmail.com**
+Report issues to: **hola@r4mus.com**
 
 ## Attribution
 

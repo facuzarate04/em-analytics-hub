@@ -9,9 +9,7 @@ import { KV_KEYS } from "../constants.js";
 import { captureEvent } from "../capture/index.js";
 import { ingestEvent } from "../ingestion/service.js";
 import type { IngestionStorage } from "../ingestion/types.js";
-import { PortableIngestionBackend } from "../backends/portable/ingestion.js";
-
-const backend = new PortableIngestionBackend();
+import { getRuntime } from "../runtime/index.js";
 
 export async function handleTrack(
 	routeCtx: { request: Request; input?: unknown },
@@ -45,7 +43,7 @@ export async function handleTrack(
 		custom_events: ctx.storage.custom_events as IngestionStorage["custom_events"],
 	};
 
-	await ingestEvent(backend, result.event, storage);
+	await ingestEvent(getRuntime().ingestion, result.event, storage);
 
 	return { ok: true };
 }

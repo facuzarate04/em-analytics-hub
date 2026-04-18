@@ -1,33 +1,21 @@
 // ---------------------------------------------------------------------------
-// Detection catalog — discovers pages, forms, and events from storage
+// Detection catalog — discovers pages, forms, and events for goal/funnel config
 // ---------------------------------------------------------------------------
 
 import type { PluginContext } from "emdash";
-import type { DailyStats, CustomEvent, DetectionCatalog } from "../types.js";
-import type { StorageCollection } from "../storage/queries.js";
+import type { CustomEvent, DetectionCatalog } from "../types.js";
 import { dateNDaysAgo, today } from "../helpers/date.js";
-import { queryStatsForRange } from "../storage/stats.js";
-import { queryCustomEvents } from "../storage/custom-events.js";
 import { buildDetectionCatalog } from "./config.js";
+import { getTopPagesReport, getCustomEventsReport, getDetectedFormsReport } from "../reporting/service.js";
+import { reportingBackend, reportingStorage } from "../reporting/backend.js";
 
-export interface CatalogStorage {
-	daily_stats: StorageCollection<DailyStats>;
-	custom_events: StorageCollection<CustomEvent>;
-}
-
-export function extractPages(
-	items: Array<{ id: string; data: DailyStats }>,
-	limit = 50,
-): string[] {
-	return Array.from(
-		new Set(
-			items
-				.map((item) => item.data.pathname)
-				.filter((pathname): pathname is string => typeof pathname === "string" && pathname.length > 0),
-		),
-	).slice(0, limit);
-}
-
+/**
+ * Extracts form names from raw custom event items.
+ *
+ * Kept as a public helper for any caller that already has raw items.
+ * The reporting backend now has getDetectedForms which handles this
+ * at the storage/D1 level, so catalog no longer calls this directly.
+ */
 export function extractForms(
 	items: Array<{ id: string; data: CustomEvent }>,
 	limit = 50,
@@ -42,6 +30,13 @@ export function extractForms(
 	).slice(0, limit);
 }
 
+/**
+ * Extracts unique event names from raw custom event items.
+ *
+ * Kept as a public helper for any caller that already has raw items.
+ * The reporting backend now has getCustomEvents which handles this
+ * at the storage/D1 level, so catalog no longer calls this directly.
+ */
 export function extractEventNames(
 	items: Array<{ id: string; data: CustomEvent }>,
 	limit = 50,
@@ -55,18 +50,31 @@ export function extractEventNames(
 	).slice(0, limit);
 }
 
+/**
+ * Builds a detection catalog for goal/funnel configuration pages.
+ *
+ * All three dimensions now use the reporting backend:
+ * - Pages: getTopPages (D1 in CF mode, daily_stats in portable)
+ * - Event names: getCustomEvents (D1 in CF mode, custom_events in portable)
+ * - Forms: getDetectedForms (D1 in CF mode, custom_events in portable)
+ *
+ * In Cloudflare mode, this function no longer reads from portable storage.
+ */
 export async function buildCatalogFromStorage(ctx: PluginContext): Promise<DetectionCatalog> {
 	const dateFrom = dateNDaysAgo(30);
 	const dateTo = today();
+	const backend = reportingBackend();
+	const storage = reportingStorage(ctx);
 
-	const [stats, customEvents] = await Promise.all([
-		queryStatsForRange(ctx.storage.daily_stats as CatalogStorage["daily_stats"], dateFrom, dateTo),
-		queryCustomEvents(ctx.storage.custom_events as CatalogStorage["custom_events"], dateFrom, dateTo),
+	const [topPages, customEventsReport, forms] = await Promise.all([
+		getTopPagesReport(backend, { dateFrom, dateTo, limit: 50 }, storage),
+		getCustomEventsReport(backend, { dateFrom, dateTo, limit: 50 }, storage),
+		getDetectedFormsReport(backend, { dateFrom, dateTo, limit: 50 }, storage),
 	]);
 
 	return buildDetectionCatalog({
-		pages: extractPages(stats),
-		forms: extractForms(customEvents),
-		events: extractEventNames(customEvents),
+		pages: topPages.map((p) => p.pathname),
+		forms,
+		events: customEventsReport.events.map((e) => e.name),
 	});
 }

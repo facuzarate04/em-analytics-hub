@@ -27,13 +27,12 @@ src/
 ├── sandbox-entry.ts      # Plugin runtime (hooks + routes)
 ├── beacon.ts             # Client-side tracking script
 ├── types.ts              # TypeScript interfaces
-├── constants.ts          # Constants and plan definitions
+├── constants.ts          # Constants and defaults
 ├── helpers/              # Pure utility functions
 ├── storage/              # Storage operations (events, stats)
+├── reporting/            # Reporting backend abstraction
 ├── routes/               # API route handlers
 ├── admin/                # Admin UI builders (Block Kit)
-├── license/              # License provider abstraction
-│   └── providers/        # Provider implementations
 ├── astro/                # Astro component
 └── __tests__/            # Test suite
 ```
@@ -73,6 +72,10 @@ Tests use [Vitest](https://vitest.dev/). Add tests for new helpers, utilities, a
 ```bash
 npm test
 ```
+
+## Support the Project
+
+If you find em-analytics-hub useful, consider [buying the maintainer a coffee](https://buymeacoffee.com/facuzarate).
 
 ## License
 

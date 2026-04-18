@@ -11,7 +11,18 @@ import type {
 	CampaignsReport,
 	CampaignIntelligenceQuery,
 	CampaignIntelligenceEntry,
+	CustomEventsReportQuery,
+	CustomEventsReport,
+	DetectedFormsQuery,
+	PropertyBreakdownsQuery,
+	PropertyBreakdownsReport,
+	GoalsQuery,
+	FormsAnalyticsQuery,
+	FunnelsQuery,
+	FunnelSet,
 } from "./types.js";
+import type { FormAnalyticsRow } from "../helpers/forms-analytics.js";
+import type { GoalMetricRow } from "../types.js";
 
 export async function getStatsReport(
 	backend: AnalyticsReportingBackend,
@@ -51,4 +62,52 @@ export async function getCampaignIntelligenceReport(
 	storage: ReportingStorage,
 ): Promise<CampaignIntelligenceEntry[]> {
 	return backend.getCampaignIntelligence(query, storage);
+}
+
+export async function getCustomEventsReport(
+	backend: AnalyticsReportingBackend,
+	query: CustomEventsReportQuery,
+	storage: ReportingStorage,
+): Promise<CustomEventsReport> {
+	return backend.getCustomEvents(query, storage);
+}
+
+export async function getDetectedFormsReport(
+	backend: AnalyticsReportingBackend,
+	query: DetectedFormsQuery,
+	storage: ReportingStorage,
+): Promise<string[]> {
+	return backend.getDetectedForms(query, storage);
+}
+
+export async function getPropertyBreakdownsReport(
+	backend: AnalyticsReportingBackend,
+	query: PropertyBreakdownsQuery,
+	storage: ReportingStorage,
+): Promise<PropertyBreakdownsReport> {
+	return backend.getPropertyBreakdowns(query, storage);
+}
+
+export async function getGoalsReport(
+	backend: AnalyticsReportingBackend,
+	query: GoalsQuery,
+	storage: ReportingStorage,
+): Promise<GoalMetricRow[]> {
+	return backend.getGoals(query, storage);
+}
+
+export async function getFormsAnalyticsReport(
+	backend: AnalyticsReportingBackend,
+	query: FormsAnalyticsQuery,
+	storage: ReportingStorage,
+): Promise<FormAnalyticsRow[]> {
+	return backend.getFormsAnalytics(query, storage);
+}
+
+export async function getFunnelsReport(
+	backend: AnalyticsReportingBackend,
+	query: FunnelsQuery,
+	storage: ReportingStorage,
+): Promise<FunnelSet[]> {
+	return backend.getFunnels(query, storage);
 }
