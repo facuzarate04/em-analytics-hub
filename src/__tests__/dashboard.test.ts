@@ -114,7 +114,9 @@ describe("buildDashboard", () => {
 		const result = await buildDashboard(ctx, 7);
 
 		const blocks = result.blocks as any[];
-		const campaignHeader = blocks.find((b: any) => b.type === "header" && b.text === "Campaigns");
+		const campaignHeader = blocks.find((b: any) =>
+			b.type === "header" && (b.text === "Campaigns" || b.text === "Campaign Intelligence"),
+		);
 		expect(campaignHeader).toBeTruthy();
 	});
 
